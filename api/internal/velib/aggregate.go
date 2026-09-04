@@ -168,10 +168,33 @@ type StationBrief struct {
 // pas de chaque station. Le seuil est donc mis à une heure.
 const staleStationThreshold = 3600
 
+// MaxNameRunes borne la longueur d'un nom de station AU MOMENT OÙ IL ENTRE
+// DANS LE CONTEXTE du modèle.
+//
+// Les noms viennent d'une source externe qu'on ne maîtrise pas. Mesuré : un
+// seul nom de 100 000 caractères fait passer la sortie de count_stations de
+// 1 590 à 105 652 octets, soit vingt-cinq fois le plafond que tout le reste du
+// projet s'impose. Une faute de saisie chez l'opérateur suffit, sans même
+// supposer de malveillance.
+//
+// 80 runes couvrent très largement le nom réel le plus long du parc parisien.
+const MaxNameRunes = 80
+
+// bornerNom tronque en RUNES et non en octets : couper au milieu d'un caractère
+// accentué produirait une séquence UTF-8 invalide, servie telle quelle au
+// modèle puis au navigateur.
+func bornerNom(nom string) string {
+	r := []rune(nom)
+	if len(r) <= MaxNameRunes {
+		return nom
+	}
+	return string(r[:MaxNameRunes]) + "…"
+}
+
 func brief(s Station, now time.Time) StationBrief {
 	b := StationBrief{
 		Code:           s.Code,
-		Name:           s.Name,
+		Name:           bornerNom(s.Name),
 		BikesAvailable: s.BikesAvailable,
 		Ebikes:         s.Ebikes,
 		DocksAvailable: s.DocksAvailable,

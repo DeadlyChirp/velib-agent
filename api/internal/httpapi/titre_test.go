@@ -71,10 +71,3 @@ func TestDeriveTitreSansEspace(t *testing.T) {
 		t.Errorf("pas d'ellipse alors que le texte est tronqué : %q", titre)
 	}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -10,249 +10,649 @@
 
   La spécification laisse le front libre. Choisir React aurait ajouté un node_modules,
   une étape de build dans le Dockerfile et une surface à réviser, pour un écran
-  qui compte une liste et une zone de conversation. Ici tout est lisible d'un
-  bout à l'autre, et l'image finale est un nginx qui sert un fichier statique.
+  qui compte une liste et une transcription. Ici tout est lisible d'un bout à
+  l'autre, et l'image finale est un nginx qui sert un fichier statique.
 
-  Ce qu'il fait quand même sérieusement : streaming SSE token par token, état
-  visible des appels d'outils, gestion des erreurs, et accessibilité clavier.
+  ── Parti pris de conception ────────────────────────────────────────────────
+
+  Ce n'est PAS une messagerie, c'est un instrument de lecture. On y vérifie des
+  chiffres, on n'y bavarde pas. D'où trois écarts assumés avec l'habitude :
+
+  1. Pas de bulles opposées gauche/droite. Une transcription : la question en
+     tête, la réponse en corps de texte. On lit une réponse, on ne suit pas une
+     discussion.
+
+  2. Les appels d'outils restent visibles APRÈS la réponse. C'est la thèse du
+     projet, les outils calculent et le modèle rédige, donc la trace de ce qui a
+     réellement été exécuté fait partie de la réponse et pas de son chargement.
+
+  3. Typographie française appliquée à l'affichage : espace fine insécable avant
+     « ? ! ; : » et dans les milliers. « 1 519 stations », jamais « 1519 ».
+     Chiffres tabulaires partout, pour que deux nombres l'un sous l'autre
+     s'alignent.
 -->
 
 <style>
+  /* ── Jetons ───────────────────────────────────────────────────────────────
+     OKLCH, et aucun gris pur : tous les neutres sont teintés vers l'accent,
+     ce qui fait tenir l'écran ensemble au lieu de juxtaposer du gris et de la
+     couleur.
+
+     Stratégie de couleur : sobre. Un seul accent, réservé à l'action primaire,
+     à la sélection courante et aux états. Jamais décoratif. */
   :root {
-    --bg: #faf9f7;
-    --panel: #ffffff;
-    --ink: #1a1d21;
-    --soft: #6b7280;
-    --line: #e5e2dd;
-    --accent: #b23a1f;
-    --accent-soft: #fdf2ee;
-    --user: #eef2f7;
-    --radius: 10px;
-    --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    color-scheme: light dark;
+
+    --ground:    oklch(98.6% 0.004 60);  /* fond de page, papier légèrement chaud */
+    --surface:   oklch(100% 0 0);        /* panneaux posés sur le fond */
+    --sunk:      oklch(96.5% 0.006 60);  /* champs de saisie, en creux */
+    --ink:       oklch(24% 0.012 55);    /* texte principal */
+    --ink-soft:  oklch(52% 0.014 55);    /* texte secondaire */
+    --ink-faint: oklch(66% 0.012 55);    /* légendes, unités */
+    --rule:      oklch(91.5% 0.007 60);  /* filets */
+    --rule-firm: oklch(85% 0.010 60);    /* filets appuyés */
+
+    --accent:       oklch(52% 0.148 38); /* terre cuite */
+    --accent-hover: oklch(46% 0.155 38);
+    --accent-wash:  oklch(96% 0.020 40);
+    --accent-edge:  oklch(86% 0.055 40);
+
+    --danger:      oklch(50% 0.170 25);
+    --danger-wash: oklch(96.5% 0.022 25);
+    --ok:          oklch(62% 0.130 150);
+
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+            "Inter", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+            Consolas, monospace;
+
+    /* Échelle fixe, rapport ~1.2 : davantage de contraste ferait du bruit sur
+       une interface qui compte beaucoup d'éléments typographiques. */
+    --t-micro: 0.6875rem;  /* 11px  légendes, unités */
+    --t-small: 0.8125rem;  /* 13px  méta, liste latérale */
+    --t-base:  0.9375rem;  /* 15px  corps */
+    --t-lead:  1.0625rem;  /* 17px  question */
+    --t-title: 1.375rem;   /* 22px  accueil */
+
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+    --r-sm: 6px; --r-md: 9px;
+
+    /* Ombre à deux couches : un contact net, une diffusion douce. Une seule
+       couche donne toujours l'effet « autocollant ». */
+    --lift: 0 1px 2px oklch(24% 0.012 55 / 0.05),
+            0 4px 12px oklch(24% 0.012 55 / 0.06);
+
+    /* Sortie exponentielle : rapide au départ, freinage long. Aucun rebond. */
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --fast: 140ms;
+    --calm: 220ms;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #16181c;
-      --panel: #1d2025;
-      --ink: #e8e6e3;
-      --soft: #9aa0a8;
-      --line: #2c3037;
-      --accent: #e8734a;
-      --accent-soft: #2a1f1a;
-      --user: #252a31;
+      --ground:    oklch(17.5% 0.008 55);
+      --surface:   oklch(21% 0.009 55);
+      --sunk:      oklch(15% 0.008 55);
+      --ink:       oklch(93% 0.006 60);
+      --ink-soft:  oklch(70% 0.010 60);
+      --ink-faint: oklch(56% 0.010 60);
+      --rule:      oklch(28% 0.010 55);
+      --rule-firm: oklch(36% 0.012 55);
+
+      --accent:       oklch(74% 0.135 42);
+      --accent-hover: oklch(80% 0.130 42);
+      --accent-wash:  oklch(27% 0.038 40);
+      --accent-edge:  oklch(38% 0.060 40);
+
+      --danger:      oklch(71% 0.150 25);
+      --danger-wash: oklch(26% 0.045 25);
+      --ok:          oklch(70% 0.120 150);
+
+      --lift: 0 1px 2px oklch(0% 0 0 / 0.30),
+              0 4px 14px oklch(0% 0 0 / 0.28);
     }
   }
 
   * { box-sizing: border-box; }
 
+  html, body { height: 100%; }
+
   body {
     margin: 0;
-    height: 100vh;
     display: grid;
-    grid-template-columns: 280px 1fr;
-    background: var(--bg);
+    grid-template-columns: 264px minmax(0, 1fr);
+    background: var(--ground);
     color: var(--ink);
-    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: var(--t-base)/1.6 var(--sans);
+    /* Chiffres tabulaires : c'est un outil qui répond par des nombres, et deux
+       nombres l'un sous l'autre doivent s'aligner. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Colonne des conversations ─────────────────────────────────────────── */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+  }
+
+  ::selection { background: var(--accent-wash); color: var(--ink); }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  /* ── Colonne latérale ───────────────────────────────────────────────────── */
   aside {
-    background: var(--panel);
-    border-right: 1px solid var(--line);
+    background: var(--surface);
+    border-right: 1px solid var(--rule);
     display: flex;
     flex-direction: column;
     min-height: 0;
   }
 
-  aside header {
-    padding: 16px;
-    border-bottom: 1px solid var(--line);
-  }
+  .brand { padding: var(--sp-5) var(--sp-4) var(--sp-4); }
 
-  aside h1 {
-    margin: 0 0 2px;
-    font-size: 15px;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-  }
-
-  aside header p {
+  .brand h1 {
     margin: 0;
-    font-size: 12px;
-    color: var(--soft);
+    font-size: var(--t-base);
+    font-weight: 600;
+    letter-spacing: -0.011em;
   }
 
-  .tracker-link {
-    display: inline-block; margin-top: 9px;
-    font-size: 12px; color: var(--accent); text-decoration: none;
+  .brand p {
+    margin: 2px 0 0;
+    font-size: var(--t-small);
+    color: var(--ink-soft);
   }
-  .tracker-link:hover { text-decoration: underline; }
+
+  /* État du service. Le texte porte l'information, le point ne fait que
+     l'appuyer : une couleur seule ne dit rien à qui la distingue mal. */
+  .status {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: var(--sp-3);
+    font: var(--t-micro)/1 var(--mono);
+    color: var(--ink-faint);
+    letter-spacing: 0.02em;
+  }
+  .status .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--ink-faint);
+    transition: background var(--calm) var(--ease);
+  }
+  .status[data-state="live"] .dot { background: var(--ok); }
+  .status[data-state="down"] .dot { background: var(--danger); }
+  .status[data-state="down"]      { color: var(--danger); }
+
+  .side-actions { padding: 0 var(--sp-3) var(--sp-3); }
 
   #new {
-    margin: 12px 16px;
-    padding: 9px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: transparent;
+    width: 100%;
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--rule-firm);
+    border-radius: var(--r-md);
+    background: var(--surface);
     color: var(--ink);
-    font: inherit;
-    font-size: 14px;
+    font: 500 var(--t-small)/1.4 var(--sans);
     cursor: pointer;
-    text-align: left;
-    transition: border-color .15s, background .15s;
+    transition: border-color var(--fast) var(--ease),
+                background var(--fast) var(--ease),
+                color var(--fast) var(--ease);
   }
-  #new:hover { border-color: var(--accent); background: var(--accent-soft); }
+  #new::before {
+    content: "+";
+    font: 400 15px/1 var(--mono);
+    color: var(--ink-faint);
+    transition: color var(--fast) var(--ease);
+  }
+  #new:hover {
+    border-color: var(--accent-edge);
+    background: var(--accent-wash);
+    color: var(--accent);
+  }
+  #new:hover::before { color: var(--accent); }
 
-  #list { flex: 1; overflow-y: auto; padding: 0 8px 16px; min-height: 0; }
+  .list-label {
+    padding: var(--sp-2) var(--sp-4) var(--sp-1);
+    margin: 0;
+    font: 500 var(--t-micro)/1 var(--sans);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  #list {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--sp-2) var(--sp-4);
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-firm) transparent;
+  }
 
   .conv {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
+    display: flex; align-items: center; gap: var(--sp-1);
+    border-radius: var(--r-sm);
+    transition: background var(--fast) var(--ease);
   }
-  .conv:hover { background: var(--bg); }
-  .conv[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 550; }
+  .conv:hover { background: var(--ground); }
 
   .conv-title {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1; min-width: 0;
+    padding: var(--sp-2);
+    border: 0; background: transparent;
+    color: var(--ink-soft);
+    font: var(--t-small)/1.45 var(--sans);
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .conv:hover .conv-title { color: var(--ink); }
+
+  /* Sélection marquée par un fond ET un poids, pas par la seule couleur. */
+  .conv[aria-current="true"] { background: var(--accent-wash); }
+  .conv[aria-current="true"] .conv-title { color: var(--accent); font-weight: 550; }
 
   .del {
-    border: 0; background: transparent; color: var(--soft);
-    cursor: pointer; padding: 2px 5px; border-radius: 5px;
-    font-size: 15px; line-height: 1; opacity: 0;
+    flex: none;
+    width: 22px; height: 22px; margin-right: var(--sp-1);
+    display: grid; place-items: center;
+    border: 0; border-radius: var(--r-sm);
+    background: transparent; color: var(--ink-faint);
+    font: 400 16px/1 var(--sans);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--fast) var(--ease),
+                color var(--fast) var(--ease),
+                background var(--fast) var(--ease);
   }
-  .conv:hover .del, .del:focus { opacity: 1; }
-  .del:hover { color: var(--accent); background: var(--panel); }
+  .conv:hover .del, .del:focus-visible { opacity: 1; }
+  .del:hover { color: var(--danger); background: var(--danger-wash); }
 
-  /* ── Zone de conversation ──────────────────────────────────────────────── */
+  .side-empty {
+    padding: var(--sp-3) var(--sp-4);
+    margin: 0;
+    font-size: var(--t-small);
+    color: var(--ink-faint);
+    line-height: 1.5;
+  }
+
+  /* ── Transcription ──────────────────────────────────────────────────────── */
   main { display: flex; flex-direction: column; min-height: 0; }
 
-  #thread { flex: 1; overflow-y: auto; padding: 28px 24px; min-height: 0; }
-  #inner { max-width: 720px; margin: 0 auto; }
+  #thread {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-7) var(--sp-5) var(--sp-5);
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-firm) transparent;
+  }
 
-  .msg { margin-bottom: 20px; display: flex; }
-  .msg.user { justify-content: flex-end; }
+  /* 68ch : dans la fourchette de lecture confortable, et assez large pour
+     qu'un classement de cinq stations ne se replie pas. */
+  #inner { max-width: 68ch; margin: 0 auto; }
 
-  .bubble {
-    max-width: 88%;
-    padding: 11px 15px;
-    border-radius: 14px;
-    white-space: pre-wrap;
+  .turn { margin-bottom: var(--sp-7); }
+  .turn:last-child { margin-bottom: var(--sp-5); }
+
+  /* La question est posée comme un titre de section, pas comme une bulle. Le
+     filet vertical est un repère de lecture. */
+  .question {
+    margin: 0 0 var(--sp-4);
+    padding-left: var(--sp-4);
+    border-left: 1px solid var(--rule-firm);
+    font-size: var(--t-lead);
+    font-weight: 500;
+    line-height: 1.45;
+    letter-spacing: -0.011em;
     overflow-wrap: anywhere;
   }
-  .user .bubble { background: var(--user); border-bottom-right-radius: 4px; }
-  .assistant .bubble {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-bottom-left-radius: 4px;
+
+  .answer {
+    font-size: var(--t-base);
+    line-height: 1.68;
+    overflow-wrap: anywhere;
   }
-  .error .bubble {
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
+  .answer p { margin: 0 0 var(--sp-3); }
+  .answer p:last-child { margin-bottom: 0; }
+
+  /* Les réponses classées arrivent en listes numérotées ou à puces. On les
+     compose vraiment, plutôt que de les laisser en bloc préformaté. */
+  .answer ol, .answer ul {
+    margin: 0 0 var(--sp-3);
+    padding-left: 0;
+    list-style: none;
+    counter-reset: rang;
+  }
+  .answer li {
+    position: relative;
+    padding-left: var(--sp-6);
+    margin-bottom: var(--sp-2);
+  }
+  .answer li:last-child { margin-bottom: 0; }
+  .answer ol li { counter-increment: rang; }
+  .answer ol li::before {
+    content: counter(rang);
+    position: absolute; left: 0; top: 0;
+    width: var(--sp-5);
+    text-align: right;
+    font: 500 var(--t-small)/1.68 var(--mono);
     color: var(--accent);
   }
+  .answer ul li::before {
+    content: "";
+    position: absolute; left: 14px; top: 0.72em;
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--rule-firm);
+  }
 
-  /* Appels d'outils : rendre l'attente lisible plutôt que de laisser
-     l'utilisateur devant un écran figé. */
-  .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .answer strong { font-weight: 600; }
+
+  .answer.error {
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--accent-edge);
+    border-radius: var(--r-md);
+    background: var(--danger-wash);
+    color: var(--danger);
+  }
+
+  /* ── Trace des outils ───────────────────────────────────────────────────────
+     Elle reste APRÈS la réponse. La transparence sur ce qui a été calculé fait
+     partie du produit : c'est ce qui distingue une réponse vérifiable d'une
+     affirmation. */
+  .trace {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+    font: var(--t-micro)/1 var(--mono);
+    color: var(--ink-faint);
+  }
+  .trace-label { letter-spacing: 0.05em; text-transform: uppercase; }
   .tool {
-    font: 11px/1 var(--mono);
-    padding: 4px 8px;
-    border-radius: 20px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    border: 1px solid var(--line);
+    padding: 3px 7px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-soft);
+    animation: pop var(--calm) var(--ease) both;
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: none; }
   }
 
-  .cursor {
-    display: inline-block; width: 7px; height: 15px;
-    background: var(--accent); vertical-align: text-bottom;
-    animation: blink 1s steps(2) infinite;
+  .meta {
+    margin-top: var(--sp-3);
+    padding-top: var(--sp-2);
+    border-top: 1px solid var(--rule);
+    font: var(--t-micro)/1.5 var(--mono);
+    color: var(--ink-faint);
   }
-  @keyframes blink { 50% { opacity: 0; } }
 
-  .meta { font: 11px var(--mono); color: var(--soft); margin-top: 6px; }
+  /* Curseur de frappe : signale que le flux est vivant. Retiré à la fin. */
+  .caret {
+    display: inline-block;
+    width: 2px; height: 1.05em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: var(--accent);
+    animation: pulse 1.1s steps(2, start) infinite;
+  }
+  @keyframes pulse { 50% { opacity: 0; } }
 
-  /* ── Écran d'accueil ───────────────────────────────────────────────────── */
-  .empty { color: var(--soft); padding: 40px 0; }
-  .empty h2 { color: var(--ink); font-size: 17px; margin: 0 0 6px; }
-  .empty p { margin: 0 0 18px; font-size: 14px; }
+  /* Attente avant le premier jeton : trois points qui respirent, plutôt qu'un
+     tourniquet posé au milieu du vide. */
+  .waiting { display: inline-flex; gap: 4px; align-items: center; height: 1.6em; }
+  .waiting span {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--ink-faint);
+    animation: breathe 1.3s var(--ease) infinite;
+  }
+  .waiting span:nth-child(2) { animation-delay: 0.16s; }
+  .waiting span:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes breathe {
+    0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+    30%           { opacity: 1;    transform: translateY(-2px); }
+  }
 
-  .suggestions { display: flex; flex-direction: column; gap: 7px; }
+  /* ── Accueil ────────────────────────────────────────────────────────────── */
+  .welcome { padding-top: var(--sp-2); }
+
+  .welcome h2 {
+    margin: 0 0 var(--sp-2);
+    font-size: var(--t-title);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+
+  .welcome > p {
+    margin: 0 0 var(--sp-6);
+    font-size: var(--t-base);
+    color: var(--ink-soft);
+    max-width: 46ch;
+  }
+
+  .suggest-label {
+    margin: 0 0 var(--sp-3);
+    font: 500 var(--t-micro)/1 var(--sans);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* Des filets plutôt que des cartes : cinq cartes identiques empilées, c'est
+     le réflexe, et ça pèse pour ce que c'est, une liste de départs. */
+  .suggestions { display: flex; flex-direction: column; }
+
   .sug {
-    text-align: left; padding: 10px 13px;
-    border: 1px solid var(--line); border-radius: var(--radius);
-    background: var(--panel); color: var(--ink);
-    font: inherit; font-size: 14px; cursor: pointer;
-    transition: border-color .15s;
+    display: flex; align-items: baseline; gap: var(--sp-3);
+    width: 100%;
+    padding: var(--sp-3) var(--sp-2);
+    border: 0;
+    border-top: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink);
+    font: var(--t-base)/1.5 var(--sans);
+    text-align: left;
+    cursor: pointer;
+    transition: color var(--fast) var(--ease),
+                padding-left var(--calm) var(--ease);
   }
-  .sug:hover { border-color: var(--accent); color: var(--accent); }
+  .suggestions .sug:last-child { border-bottom: 1px solid var(--rule); }
+  .sug::before {
+    content: attr(data-n);
+    flex: none;
+    font: 500 var(--t-micro)/1.9 var(--mono);
+    color: var(--ink-faint);
+    transition: color var(--fast) var(--ease);
+  }
+  .sug:hover { color: var(--accent); padding-left: var(--sp-3); }
+  .sug:hover::before { color: var(--accent); }
 
-  /* ── Saisie ────────────────────────────────────────────────────────────── */
+  /* ── Saisie ─────────────────────────────────────────────────────────────── */
   form {
-    border-top: 1px solid var(--line);
-    background: var(--panel);
-    padding: 14px 24px 18px;
+    border-top: 1px solid var(--rule);
+    background: var(--surface);
+    padding: var(--sp-4) var(--sp-5);
   }
-  .row { max-width: 720px; margin: 0 auto; display: flex; gap: 9px; align-items: flex-end; }
+
+  .row {
+    max-width: 68ch; margin: 0 auto;
+    display: flex; gap: var(--sp-2); align-items: flex-end;
+  }
+
+  .field { flex: 1; display: flex; min-width: 0; }
 
   textarea {
-    flex: 1; resize: none;
-    padding: 11px 13px;
-    border: 1px solid var(--line); border-radius: var(--radius);
-    background: var(--bg); color: var(--ink);
-    font: inherit; max-height: 160px;
+    flex: 1;
+    resize: none;
+    padding: 10px 13px;
+    border: 1px solid var(--rule-firm);
+    border-radius: var(--r-md);
+    background: var(--sunk);
+    color: var(--ink);
+    font: var(--t-base)/1.5 var(--sans);
+    max-height: 168px;
+    transition: border-color var(--fast) var(--ease),
+                background var(--fast) var(--ease),
+                box-shadow var(--fast) var(--ease);
   }
-  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-
-  button[type=submit] {
-    padding: 11px 20px; border: 0; border-radius: var(--radius);
-    background: var(--accent); color: #fff;
-    font: inherit; font-weight: 550; cursor: pointer;
+  textarea::placeholder { color: var(--ink-faint); }
+  textarea:hover:not(:focus):not(:disabled) { border-color: var(--accent-edge); }
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface);
+    box-shadow: 0 0 0 3px var(--accent-wash);
   }
-  button[type=submit]:disabled { opacity: .45; cursor: not-allowed; }
+  textarea:disabled { opacity: 0.55; cursor: not-allowed; }
 
-  .hint { max-width: 720px; margin: 8px auto 0; font-size: 11px; color: var(--soft); }
+  #send {
+    flex: none;
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    background: var(--accent);
+    color: oklch(99% 0.004 60);
+    font: 550 var(--t-base)/1.5 var(--sans);
+    cursor: pointer;
+    transition: background var(--fast) var(--ease),
+                opacity var(--fast) var(--ease);
+  }
+  #send:hover:not(:disabled) { background: var(--accent-hover); }
+  #send:disabled { opacity: 0.42; cursor: not-allowed; }
 
-  @media (max-width: 720px) {
-    body { grid-template-columns: 1fr; }
-    aside { display: none; }
+  .hint {
+    max-width: 68ch; margin: var(--sp-2) auto 0;
+    font: var(--t-micro)/1.5 var(--sans);
+    color: var(--ink-faint);
+  }
+  .hint kbd {
+    font: var(--t-micro)/1 var(--mono);
+    padding: 2px 4px;
+    border: 1px solid var(--rule-firm);
+    border-radius: 4px;
+    background: var(--ground);
+    color: var(--ink-soft);
+  }
+
+  /* ── Adaptation ─────────────────────────────────────────────────────────── */
+
+  /* Sous 860 px la colonne se replie derrière un bouton plutôt que de
+     disparaître : sans elle, les conversations passées deviennent
+     inaccessibles sur téléphone. */
+  .drawer-toggle {
+    display: none;
+    position: fixed; top: var(--sp-3); left: var(--sp-3);
+    z-index: 30;
+    width: 36px; height: 36px;
+    align-items: center; justify-content: center;
+    border: 1px solid var(--rule-firm);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--lift);
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .scrim { display: none; }
+
+  @media (max-width: 860px) {
+    body { grid-template-columns: minmax(0, 1fr); }
+
+    aside {
+      position: fixed; inset: 0 auto 0 0;
+      z-index: 40;
+      width: min(280px, 84vw);
+      transform: translateX(-100%);
+      transition: transform var(--calm) var(--ease);
+      box-shadow: var(--lift);
+    }
+    body[data-drawer="open"] aside { transform: none; }
+
+    .drawer-toggle { display: flex; }
+
+    body[data-drawer="open"] .scrim {
+      display: block;
+      position: fixed; inset: 0; z-index: 35;
+      background: oklch(24% 0.012 55 / 0.32);
+    }
+
+    #thread { padding: var(--sp-8) var(--sp-4) var(--sp-4); }
+    form { padding: var(--sp-3) var(--sp-4); }
+    .welcome h2 { font-size: 1.25rem; }
+  }
+
+  @media (max-width: 420px) {
+    #send { padding: 10px 14px; }
+  }
+
+  /* Respecte un système réglé sur « moins d'animations » : ici tout est
+     informatif ou décoratif, rien n'est indispensable. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  @media print {
+    aside, form, .drawer-toggle, .caret { display: none; }
+    body { display: block; }
+    #thread { overflow: visible; padding: 0; }
   }
 </style>
 </head>
 <body>
 
-<aside>
-  <header>
+<button class="drawer-toggle" id="drawer" aria-label="Afficher les conversations"
+        aria-expanded="false" aria-controls="side">☰</button>
+<div class="scrim" id="scrim"></div>
+
+<aside id="side">
+  <div class="brand">
     <h1>Agent Vélib'</h1>
-    <p>Parc de stations de Paris et sa métropole</p>
-    <a class="tracker-link" href="/tracker.html">Tracker →</a>
-  </header>
-  <button id="new">+ Nouvelle conversation</button>
-  <div id="list" role="list"></div>
+    <p>Stations de Paris et sa métropole</p>
+    <span class="status" id="status" data-state="unknown">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status-text">connexion…</span>
+    </span>
+  </div>
+
+  <div class="side-actions">
+    <button type="button" id="new">Nouvelle conversation</button>
+  </div>
+
+  <p class="list-label" id="list-label">Historique</p>
+  <div id="list" role="list" aria-labelledby="list-label"></div>
 </aside>
 
 <main>
-  <div id="thread"><div id="inner"></div></div>
+  <div id="thread" tabindex="-1"><div id="inner"></div></div>
 
   <form id="form">
     <div class="row">
-      <textarea id="input" rows="1" placeholder="Posez une question sur le parc Vélib'…"
-                aria-label="Votre question"></textarea>
+      <div class="field">
+        <textarea id="input" rows="1" placeholder="Posez une question sur le parc Vélib'…"
+                  aria-label="Votre question" autocomplete="off"></textarea>
+      </div>
       <button type="submit" id="send">Envoyer</button>
     </div>
-    <p class="hint">Entrée pour envoyer · Maj+Entrée pour un retour à la ligne</p>
+    <p class="hint">
+      <kbd>Entrée</kbd> pour envoyer · <kbd>Maj</kbd>+<kbd>Entrée</kbd> pour un retour à la ligne
+    </p>
   </form>
 </main>
+
+<!-- Annonces pour les lecteurs d'écran : sans elles, une réponse qui arrive en
+     streaming n'est jamais signalée à qui ne voit pas l'écran. -->
+<div id="live" class="sr-only" role="status" aria-live="polite"></div>
 
 <script>
 // L'API est servie par le même hôte via le proxy nginx : pas d'URL en dur,
@@ -268,6 +668,9 @@ const $thread = document.getElementById("thread");
 const $input  = document.getElementById("input");
 const $send   = document.getElementById("send");
 const $form   = document.getElementById("form");
+const $live   = document.getElementById("live");
+const $status = document.getElementById("status");
+const $statusText = document.getElementById("status-text");
 
 const SUGGESTIONS = [
   "Combien de vélos électriques sont disponibles sur l'ensemble du parc ?",
@@ -276,6 +679,30 @@ const SUGGESTIONS = [
   "Combien de vélos y a-t-il à la station Benjamin Godard ?",
   "Liste-moi toutes les stations vides."
 ];
+
+// ── Typographie française ───────────────────────────────────────────────────
+//
+// L'espace fine insécable avant « ? ! ; : » et dans les milliers est la règle
+// en français. Le modèle ne la produit pas, et « 1519 stations » ou un « ? »
+// collé se voient immédiatement à l'œil d'un lecteur français.
+//
+// Appliqué à L'AFFICHAGE seulement : la valeur envoyée à l'API et celle
+// stockée restent le texte brut. On ne réécrit jamais la donnée pour des
+// raisons de mise en forme.
+const FINE = " "; // espace fine insécable
+const NBSP = " "; // espace insécable
+
+function typographieFR(s) {
+  return String(s)
+    // Espace fine avant la ponctuation haute, en absorbant celle déjà présente.
+    .replace(/[   ]*([?!;:])/g, FINE + "$1")
+    // Séparateur de milliers sur les entiers nus de 4 à 9 chiffres. Borné
+    // volontairement : au-delà on est sur un identifiant, pas une quantité.
+    .replace(/\b\d{4,9}\b/g, (m) => m.replace(/\B(?=(\d{3})+$)/g, FINE))
+    // Guillemets français collés à leur contenu : « comme ceci ».
+    .replace(/«[   ]*/g, "«" + NBSP)
+    .replace(/[   ]*»/g, NBSP + "»");
+}
 
 // ── Utilitaires ─────────────────────────────────────────────────────────────
 
@@ -291,21 +718,101 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-function scrollDown() { $thread.scrollTop = $thread.scrollHeight; }
+// Ne défile que si l'utilisateur est déjà en bas. Le ramener de force pendant
+// qu'il relit une réponse précédente est le défaut classique des interfaces de
+// chat, et il rend la relecture impossible pendant un flux.
+function scrollDown(force = false) {
+  const marge = 120;
+  const enBas = $thread.scrollHeight - $thread.scrollTop - $thread.clientHeight < marge;
+  if (force || enBas) $thread.scrollTop = $thread.scrollHeight;
+}
 
-// textContent et jamais innerHTML : le contenu vient d'un modèle de langage,
-// donc d'une source qu'on ne contrôle pas. L'injecter en HTML serait une faille
-// XSS offerte.
-function bubble(role, text) {
-  const wrap = document.createElement("div");
-  wrap.className = "msg " + role;
-  const b = document.createElement("div");
-  b.className = "bubble";
-  b.textContent = text;
-  wrap.appendChild(b);
-  $inner.appendChild(wrap);
-  scrollDown();
-  return b;
+function annoncer(message) { $live.textContent = message; }
+
+// ── Rendu d'une réponse ─────────────────────────────────────────────────────
+//
+// Le texte vient d'un modèle de langage, donc d'une source qu'on ne contrôle
+// pas : il n'est JAMAIS injecté en HTML. On construit des nœuds et on affecte
+// textContent, ce qui rend l'injection structurellement impossible.
+//
+// On reconnaît quand même les deux structures que le modèle produit vraiment,
+// listes numérotées et listes à puces, pour les composer plutôt que de les
+// laisser en bloc préformaté.
+function rendreReponse(conteneur, texte) {
+  conteneur.textContent = "";
+
+  let liste = null;   // <ol>/<ul> en cours
+  let para = null;    // <p> en cours
+
+  for (const brute of String(texte).split("\n")) {
+    const ligne = brute.trim();
+
+    if (ligne === "") { liste = null; para = null; continue; }
+
+    const numerotee = ligne.match(/^(\d{1,3})[.)]\s+(.*)$/);
+    const puce      = ligne.match(/^[-*•]\s+(.*)$/);
+
+    if (numerotee || puce) {
+      para = null;
+      const type = numerotee ? "ol" : "ul";
+      if (!liste || liste.localName !== type) {
+        liste = document.createElement(type);
+        conteneur.appendChild(liste);
+      }
+      const li = document.createElement("li");
+      remplirAvecEmphase(li, numerotee ? numerotee[2] : puce[1]);
+      liste.appendChild(li);
+      continue;
+    }
+
+    liste = null;
+    if (!para) {
+      para = document.createElement("p");
+      conteneur.appendChild(para);
+    } else {
+      para.appendChild(document.createTextNode(" "));
+    }
+    remplirAvecEmphase(para, ligne);
+  }
+
+  // Réponse en une seule ligne sans structure : on garde quand même un
+  // paragraphe pour la mise en page.
+  if (!conteneur.childNodes.length && String(texte).trim() !== "") {
+    const p = document.createElement("p");
+    remplirAvecEmphase(p, texte);
+    conteneur.appendChild(p);
+  }
+}
+
+// Le modèle marque l'emphase en Markdown (**Jean Macé**). On la rend en
+// <strong> en construisant les nœuds un par un, sans jamais passer par
+// innerHTML.
+function remplirAvecEmphase(hote, texte) {
+  const morceaux = String(texte).split(/\*\*([^*]+)\*\*/g);
+  morceaux.forEach((m, i) => {
+    if (m === "") return;
+    if (i % 2 === 1) {
+      const fort = document.createElement("strong");
+      fort.textContent = typographieFR(m);
+      hote.appendChild(fort);
+    } else {
+      hote.appendChild(document.createTextNode(typographieFR(m)));
+    }
+  });
+}
+
+// ── État du service ─────────────────────────────────────────────────────────
+
+async function verifierSante() {
+  try {
+    const s = await api("/health");
+    const ok = s.status === "ok" && s.postgres === "ok";
+    $status.dataset.state = ok ? "live" : "down";
+    $statusText.textContent = ok ? (s.model || "en ligne") : "service dégradé";
+  } catch {
+    $status.dataset.state = "down";
+    $statusText.textContent = "service injoignable";
+  }
 }
 
 // ── Conversations ───────────────────────────────────────────────────────────
@@ -313,27 +820,46 @@ function bubble(role, text) {
 async function loadConversations() {
   try {
     const { conversations } = await api("/conversations");
-    $list.innerHTML = "";
+    $list.textContent = "";
+
+    if (!conversations.length) {
+      const p = document.createElement("p");
+      p.className = "side-empty";
+      p.textContent = "Vos conversations apparaîtront ici.";
+      $list.appendChild(p);
+      return;
+    }
+
     for (const c of conversations) {
       const row = document.createElement("div");
       row.className = "conv";
       row.setAttribute("role", "listitem");
       row.setAttribute("aria-current", String(c.id === currentId));
 
-      const title = document.createElement("span");
+      // Un vrai <button> et non un <span> cliquable : le clavier et les
+      // lecteurs d'écran le trouvent sans qu'on ait à réinventer les rôles.
+      const title = document.createElement("button");
+      title.type = "button";
       title.className = "conv-title";
-      title.textContent = c.title || "Conversation";
-      title.onclick = () => openConversation(c.id);
+      title.textContent = typographieFR(c.title || "Conversation");
+      title.onclick = () => { openConversation(c.id); fermerTiroir(); };
 
       const del = document.createElement("button");
+      del.type = "button";
       del.className = "del";
       del.textContent = "×";
       del.title = "Supprimer";
-      del.setAttribute("aria-label", "Supprimer « " + (c.title || "conversation") + " »");
+      del.setAttribute("aria-label",
+        "Supprimer la conversation " + (c.title || "sans titre"));
       del.onclick = async (e) => {
         e.stopPropagation();
         if (!confirm("Supprimer cette conversation ?")) return;
-        await api("/conversations/" + c.id, { method: "DELETE" });
+        try {
+          await api("/conversations/" + c.id, { method: "DELETE" });
+        } catch (err) {
+          annoncer("Suppression impossible : " + err.message);
+          return;
+        }
         if (currentId === c.id) { currentId = null; showWelcome(); }
         loadConversations();
       };
@@ -342,10 +868,10 @@ async function loadConversations() {
       $list.appendChild(row);
     }
   } catch (e) {
-    $list.innerHTML = "";
+    $list.textContent = "";
     const p = document.createElement("p");
-    p.style.cssText = "padding:12px 16px;font-size:13px;color:var(--soft)";
-    p.textContent = "Service indisponible : " + e.message;
+    p.className = "side-empty";
+    p.textContent = "Historique indisponible : " + e.message;
     $list.appendChild(p);
   }
 }
@@ -353,7 +879,7 @@ async function loadConversations() {
 async function newConversation() {
   const c = await api("/conversations", { method: "POST" });
   currentId = c.id;
-  $inner.innerHTML = "";
+  $inner.textContent = "";
   await loadConversations();
   $input.focus();
   return c.id;
@@ -361,36 +887,86 @@ async function newConversation() {
 
 async function openConversation(id) {
   currentId = id;
-  $inner.innerHTML = "";
-  const c = await api("/conversations/" + id);
-  for (const m of c.messages) bubble(m.role === "user" ? "user" : "assistant", m.content);
-  if (!c.messages.length) showSuggestions();
+  $inner.textContent = "";
+  try {
+    const c = await api("/conversations/" + id);
+    for (const m of c.messages) {
+      if (m.role === "user") ajouterQuestion(m.content);
+      else ajouterReponse(m.content);
+    }
+    if (!c.messages.length) showWelcome();
+  } catch (e) {
+    const p = document.createElement("p");
+    p.className = "answer error";
+    p.textContent = "Conversation illisible : " + e.message;
+    $inner.appendChild(p);
+  }
   loadConversations();
+  scrollDown(true);
 }
+
+// ── Construction de la transcription ────────────────────────────────────────
+
+function ajouterQuestion(texte) {
+  const tour = document.createElement("section");
+  tour.className = "turn";
+  const q = document.createElement("p");
+  q.className = "question";
+  q.textContent = typographieFR(texte);
+  tour.appendChild(q);
+  $inner.appendChild(tour);
+  return tour;
+}
+
+function ajouterReponse(texte) {
+  // Rattache la réponse au dernier tour, ou en crée un si l'historique
+  // commence par une réponse.
+  let tour = $inner.lastElementChild;
+  if (!tour || !tour.classList.contains("turn")) {
+    tour = document.createElement("section");
+    tour.className = "turn";
+    $inner.appendChild(tour);
+  }
+  const rep = document.createElement("div");
+  rep.className = "answer";
+  rendreReponse(rep, texte);
+  tour.appendChild(rep);
+  return rep;
+}
+
+// ── Accueil ─────────────────────────────────────────────────────────────────
 
 function showWelcome() {
-  $inner.innerHTML = "";
-  const box = document.createElement("div");
-  box.className = "empty";
-  const h = document.createElement("h2");
-  h.textContent = "Que voulez-vous savoir sur le parc Vélib' ?";
-  const p = document.createElement("p");
-  p.textContent = "1 519 stations à Paris et dans sa métropole, en temps réel.";
-  box.append(h, p);
-  $inner.appendChild(box);
-  showSuggestions();
-}
+  $inner.textContent = "";
 
-function showSuggestions() {
   const box = document.createElement("div");
-  box.className = "suggestions";
-  for (const s of SUGGESTIONS) {
+  box.className = "welcome";
+
+  const h = document.createElement("h2");
+  h.textContent = typographieFR("Que voulez-vous savoir sur le parc Vélib' ?");
+
+  const p = document.createElement("p");
+  p.textContent = typographieFR(
+    "Les chiffres viennent de l'API Vélib' en temps réel et sont calculés côté " +
+    "serveur. Le modèle rédige la réponse, il n'invente aucun nombre.");
+
+  const label = document.createElement("p");
+  label.className = "suggest-label";
+  label.textContent = "Pour commencer";
+
+  const liste = document.createElement("div");
+  liste.className = "suggestions";
+  SUGGESTIONS.forEach((s, i) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "sug";
-    b.textContent = s;
+    b.dataset.n = String(i + 1).padStart(2, "0");
+    b.textContent = typographieFR(s);
     b.onclick = () => { $input.value = s; $form.requestSubmit(); };
-    box.appendChild(b);
-  }
+    liste.appendChild(b);
+  });
+
+  box.append(h, p, label, liste);
   $inner.appendChild(box);
 }
 
@@ -398,30 +974,61 @@ function showSuggestions() {
 
 async function send(question) {
   if (streaming) return;
-  if (!currentId) await newConversation();
 
-  // Retire l'écran d'accueil au premier message.
-  const welcome = $inner.querySelector(".empty, .suggestions");
-  if (welcome) $inner.innerHTML = "";
+  try {
+    if (!currentId) await newConversation();
+  } catch (e) {
+    const t = ajouterQuestion(question);
+    const err = document.createElement("div");
+    err.className = "answer error";
+    err.textContent = "Impossible d'ouvrir une conversation : " + e.message;
+    t.appendChild(err);
+    return;
+  }
 
-  bubble("user", question);
+  if ($inner.querySelector(".welcome")) $inner.textContent = "";
 
-  const wrap = document.createElement("div");
-  wrap.className = "msg assistant";
-  const b = document.createElement("div");
-  b.className = "bubble";
-  const toolbar = document.createElement("div");
-  toolbar.className = "tools";
-  const text = document.createElement("span");
-  const cursor = document.createElement("span");
-  cursor.className = "cursor";
-  b.append(toolbar, text, cursor);
-  wrap.appendChild(b);
-  $inner.appendChild(wrap);
-  scrollDown();
+  const tour = ajouterQuestion(question);
+
+  const trace = document.createElement("div");
+  trace.className = "trace";
+  trace.hidden = true;
+  const traceLabel = document.createElement("span");
+  traceLabel.className = "trace-label";
+  traceLabel.textContent = "outils";
+  trace.appendChild(traceLabel);
+
+  const rep = document.createElement("div");
+  rep.className = "answer";
+
+  const attente = document.createElement("span");
+  attente.className = "waiting";
+  attente.setAttribute("aria-label", "Réponse en cours");
+  attente.append(document.createElement("span"),
+                 document.createElement("span"),
+                 document.createElement("span"));
+  rep.appendChild(attente);
+
+  tour.append(trace, rep);
+  scrollDown(true);
 
   streaming = true;
   $send.disabled = true;
+  $input.disabled = true;
+  annoncer("Question envoyée, réponse en cours.");
+
+  let brut = "";      // texte accumulé, non typographié
+  let caret = null;
+  const outils = [];
+
+  const retirer = (el) => { if (el && el.isConnected) el.remove(); };
+  const poserCaret = () => {
+    if (caret) return;
+    caret = document.createElement("span");
+    caret.className = "caret";
+    caret.setAttribute("aria-hidden", "true");
+    rep.appendChild(caret);
+  };
 
   try {
     const res = await fetch(`${API}/conversations/${currentId}/messages`, {
@@ -458,47 +1065,94 @@ async function send(question) {
         try { ev = JSON.parse(line.slice(6)); } catch { continue; }
 
         if (ev.type === "token") {
-          text.textContent += ev.content;
+          retirer(attente);
+          brut += ev.content;
+          // Pendant le flux on reste en texte simple : recomposer les listes à
+          // chaque jeton ferait clignoter la mise en page. La structure est
+          // posée une seule fois, sur « done ».
+          rep.textContent = typographieFR(brut);
+          caret = null;
+          poserCaret();
           scrollDown();
+
         } else if (ev.type === "tool") {
-          const chip = document.createElement("span");
-          chip.className = "tool";
-          chip.textContent = ev.tool;
-          toolbar.appendChild(chip);
+          if (!outils.includes(ev.tool)) {
+            outils.push(ev.tool);
+            const chip = document.createElement("span");
+            chip.className = "tool";
+            chip.textContent = ev.tool;
+            trace.appendChild(chip);
+            trace.hidden = false;
+          }
           scrollDown();
+
         } else if (ev.type === "error") {
-          wrap.className = "msg error";
-          text.textContent = ev.error;
+          retirer(attente);
+          retirer(caret); caret = null;
+          rep.className = "answer error";
+          rep.textContent = ev.error;
+          annoncer(ev.error);
+
         } else if (ev.type === "done") {
-          if (ev.full) text.textContent = ev.full;
+          retirer(attente);
+          retirer(caret); caret = null;
+          const final = ev.full || brut;
+          if (final) {
+            rendreReponse(rep, final);
+            annoncer(final.slice(0, 400));
+          }
           if (ev.tokens) {
             const m = document.createElement("div");
             m.className = "meta";
-            m.textContent = `${ev.tokens.total} jetons`;
-            b.appendChild(m);
+            const appels = outils.length
+              ? ` · ${outils.length} appel${outils.length > 1 ? "s" : ""} d'outil`
+              : "";
+            m.textContent = typographieFR(`${ev.tokens.total} jetons${appels}`);
+            rep.appendChild(m);
           }
         }
       }
     }
   } catch (e) {
-    wrap.className = "msg error";
-    text.textContent = "Erreur : " + e.message;
+    retirer(attente);
+    retirer(caret); caret = null;
+    rep.className = "answer error";
+    rep.textContent = "Erreur : " + e.message;
+    annoncer("La réponse a échoué : " + e.message);
   } finally {
-    cursor.remove();
+    retirer(caret);
     streaming = false;
     $send.disabled = false;
+    $input.disabled = false;
     scrollDown();
     loadConversations();   // rafraîchit le titre posé au premier message
     $input.focus();
   }
 }
 
+// ── Tiroir latéral (petits écrans) ──────────────────────────────────────────
+
+const $drawer = document.getElementById("drawer");
+const $scrim  = document.getElementById("scrim");
+
+function ouvrirTiroir() {
+  document.body.dataset.drawer = "open";
+  $drawer.setAttribute("aria-expanded", "true");
+}
+function fermerTiroir() {
+  delete document.body.dataset.drawer;
+  $drawer.setAttribute("aria-expanded", "false");
+}
+$drawer.onclick = () =>
+  document.body.dataset.drawer === "open" ? fermerTiroir() : ouvrirTiroir();
+$scrim.onclick = fermerTiroir;
+
 // ── Interactions ────────────────────────────────────────────────────────────
 
 $form.addEventListener("submit", (e) => {
   e.preventDefault();
   const q = $input.value.trim();
-  if (!q) return;
+  if (!q || streaming) return;
   $input.value = "";
   $input.style.height = "auto";
   send(q);
@@ -513,20 +1167,30 @@ $input.addEventListener("keydown", (e) => {
   }
 });
 
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") fermerTiroir();
+});
+
 // La zone grandit avec le texte, jusqu'au plafond fixé en CSS.
 $input.addEventListener("input", () => {
   $input.style.height = "auto";
-  $input.style.height = Math.min($input.scrollHeight, 160) + "px";
+  $input.style.height = Math.min($input.scrollHeight, 168) + "px";
 });
 
 document.getElementById("new").onclick = async () => {
-  await newConversation();
-  showWelcome();
+  try {
+    await newConversation();
+    showWelcome();
+    fermerTiroir();
+  } catch (e) {
+    annoncer("Impossible de créer une conversation : " + e.message);
+  }
 };
 
 // ── Démarrage ───────────────────────────────────────────────────────────────
 
 (async function start() {
+  verifierSante();
   await loadConversations();
   showWelcome();
   $input.focus();

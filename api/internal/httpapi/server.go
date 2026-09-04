@@ -23,11 +23,12 @@ type Server struct {
 	cfg     config.Config
 	log     *slog.Logger
 	metrics *observability.Metrics
+	debit   *limiteur
 }
 
 // New construit le serveur.
 func New(a *agent.Service, cfg config.Config, log *slog.Logger, m *observability.Metrics) *Server {
-	return &Server{agent: a, cfg: cfg, log: log, metrics: m}
+	return &Server{agent: a, cfg: cfg, log: log, metrics: m, debit: nouveauLimiteur()}
 }
 
 // Routes construit le routeur.
@@ -44,7 +45,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/conversations", s.handleCreateConversation)
 	mux.HandleFunc("GET /api/conversations/{id}", s.handleGetConversation)
 	mux.HandleFunc("DELETE /api/conversations/{id}", s.handleDeleteConversation)
-	mux.HandleFunc("POST /api/conversations/{id}/messages", s.handleSendMessage)
+	// Seule route limitée en débit : c'est la seule qui appelle le modèle, donc
+	// la seule qui coûte des jetons chez le fournisseur. Voir debit.go.
+	mux.Handle("POST /api/conversations/{id}/messages",
+		s.withRateLimit(http.HandlerFunc(s.handleSendMessage)))
 
 	return s.withCORS(s.withLogging(mux))
 }
