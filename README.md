@@ -154,6 +154,17 @@ reçoit une erreur brute comble le vide en inventant ; un agent qui reçoit « v
 la donnée, elle a quarante minutes, la source est injoignable » peut le dire
 honnêtement.
 
+Le rafraîchissement se fait **en arrière-plan**, pas dans la requête. La source
+met 300 à 430 ms par fichier et le cache en charge deux : quand il bloquait,
+une requête par minute payait ~700 ms pour tout le monde. Passé le TTL, on sert
+la donnée en mémoire immédiatement et on rafraîchit dans une goroutine. La
+donnée a au plus une minute de retard — invisible sur un comptage de vélos,
+contrairement à l'attente.
+
+Garde-fou : au-delà de dix fois le TTL, on redevient bloquant. Si la source est
+tombée depuis dix minutes, l'appelant doit l'apprendre, pas recevoir des chiffres
+d'un quart d'heure comme s'ils étaient frais.
+
 ### 6. Les sessions PostgreSQL viennent du framework
 
 J'avais commencé à écrire ma propre table de messages. En lisant le code de
@@ -258,6 +269,76 @@ Le journal complet est dans [`NOTES.md`](NOTES.md).
   elle fait remonter des noms qui ne partagent aucun mot avec la requête. Trois
   paliers explicites sont moins impressionnants et beaucoup plus faciles à
   expliquer quand un résultat surprend.
+
+---
+
+## Performance : ce que la mesure a dit
+
+Profilage d'abord. Les bancs sont dans `internal/velib/bench_test.go`, relançables
+avec `go test ./internal/velib -bench . -benchmem`.
+
+**Trois suspects évidents, tous innocents :**
+
+| Suspect | Mesuré | Verdict |
+|---|---|---|
+| `Search` sur 1 519 stations | **350 µs** | quatre ordres de grandeur sous un tour d'agent |
+| Sorties d'outils | 110 à 738 jetons | déjà compactes |
+| Prompt statique | 2 599 jetons | instruction + quatre schémas |
+
+Optimiser la recherche aurait été du travail visible pour un gain nul : un tour
+d'agent prend 1,5 à 26 secondes, et 350 µs en représentent 0,001 %.
+
+**Le prompt n'est pas le levier non plus**, et la mesure le montre directement :
+une question à 5 470 jetons de prompt répond en 1,5 s, une autre à 5 972 jetons
+met 26,1 s. Prompt quasi identique, latence dix-sept fois supérieure — c'est la
+génération qui coûte, pas la lecture. Chaque règle de l'instruction bloque une
+panne précise (hallucination, ambiguïté, troncature, donnée périmée) : la rogner
+échangerait de la justesse contre des jetons qui ne coûtent rien.
+
+**Le vrai goulot était le cache**, et il était invisible en développement : le
+rafraîchissement bloquait la requête qui tombait sur l'expiration. Corrigé en
+servant la donnée en mémoire pendant que la goroutine rafraîchit — détail en
+section 5.
+
+**Le second levier est le raisonnement du modèle.** Un tour ne fait qu'un seul
+appel d'outil : la durée est presque entièrement de la génération, et sur un
+modèle raisonneur la majorité des jetons produits sont invisibles dans la
+réponse. Mesuré en isolation sur `gpt-oss-120b` :
+
+| `reasoning_effort` | Latence | Jetons de complétion |
+|---|---|---|
+| défaut | 1 066 ms | 201 |
+| **low** | **587 ms** | **98** |
+
+Sur une question réelle, l'écart est plus net encore : 386 jetons au défaut
+contre **20** en `low`, pour la même réponse juste. Le compromis est sans danger
+ici parce que le modèle ne calcule rien — les agrégations sont faites en Go, de
+façon déterministe. Il lui reste à choisir l'outil et rédiger.
+
+D'où `REASONING_EFFORT=low` par défaut dans `.env.example`. Le paramètre n'est
+**envoyé que s'il est renseigné** : il n'existe pas chez tous les fournisseurs,
+et un Mistral rejetterait un champ inconnu.
+
+### Une mesure ratée, et pourquoi je la raconte
+
+Ma première comparaison de modèles donnait `gpt-oss-120b` à 13 s, `gpt-oss-20b` à
+22 s, `qwen3.8` à 39 s. Puis un banc a rendu trois questions à ~21 000 ms
+**exactement** — trop uniforme pour être de la latence.
+
+C'était le palier gratuit de Groq : la limite est en jetons par minute, et
+l'API ne rejette pas, elle **fait attendre**. Je chronométrais la file d'attente,
+pas le modèle. Le classement des modèles est donc à prendre avec prudence — les
+derniers testés partaient avec un seau déjà vidé par les premiers.
+
+Ce qui reste solide : les mesures isolées, faites une par une avec le quota
+reconstitué. Et le fait que le classement soit contaminé est lui-même une
+information — sur ce palier, **c'est le débit qui contraint, pas la latence**.
+Diviser les jetons par cinq multiplie d'autant le nombre de questions possibles
+par minute.
+
+La leçon tient en une ligne : les trois choses que j'aurais optimisées d'instinct
+ne coûtaient rien, celle qui coûtait ne se voyait pas sans chronomètre, et mon
+premier chronomètre mesurait autre chose que ce que je croyais.
 
 ---
 

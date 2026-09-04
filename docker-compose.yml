@@ -48,6 +48,10 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY est obligatoire, copier .env.example vers .env}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
 
+      # Longueur du raisonnement, pour les modèles qui en font (gpt-oss, o-series).
+      # Vide = paramètre non envoyé, car il n'existe pas chez tous les fournisseurs.
+      REASONING_EFFORT: "${REASONING_EFFORT:-}"
+
       VELIB_CACHE_TTL: "${VELIB_CACHE_TTL:-60s}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       LOG_FORMAT: "${LOG_FORMAT:-text}"

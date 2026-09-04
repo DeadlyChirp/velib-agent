@@ -196,8 +196,7 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 				At: start, ConversationID: convID, Status: "error",
 				DurationMs: time.Since(start).Milliseconds(), Tools: toolCalls,
 			})
-			send(sseEvent{Type: "error",
-				Error: "une erreur est survenue pendant la génération de la réponse"})
+			send(sseEvent{Type: "error", Error: messageUtilisateur(errMsg)})
 			return
 		}
 
@@ -279,6 +278,31 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 // On teste PostgreSQL par un appel réel plutôt que de renvoyer « ok » en dur :
 // une sonde qui répond toujours vrai ne sert à rien, et c'est précisément ce
 // genre de contrôle vert en permanence qui laisse une panne passer inaperçue.
+// messageUtilisateur traduit l'erreur du fournisseur en une phrase actionnable.
+//
+// Toutes les pannes ne se valent pas. Une limite de debit est PASSAGERE : la
+// bonne reaction est d'attendre et de reessayer, et l'utilisateur ne peut pas
+// le deviner derriere « une erreur est survenue ». Un defaut d'authentification
+// est DEFINITIF sans intervention : lui dire de reessayer le ferait tourner en
+// rond.
+//
+// On ne recopie jamais le message brut du fournisseur : il contient l'URL, le
+// nom de l'organisation et parfois des fragments de configuration. Le detail
+// complet reste dans le journal, cote serveur.
+func messageUtilisateur(brut string) string {
+	b := strings.ToLower(brut)
+	switch {
+	case strings.Contains(b, "429"), strings.Contains(b, "rate limit"):
+		return "Le quota du fournisseur de modèle est atteint. Réessayez dans une minute."
+	case strings.Contains(b, "401"), strings.Contains(b, "invalid_api_key"):
+		return "La clé d'API du modèle est refusée. Vérifiez OPENAI_API_KEY."
+	case strings.Contains(b, "context deadline exceeded"), strings.Contains(b, "timeout"):
+		return "Le modèle n'a pas répondu à temps. Réessayez."
+	default:
+		return "Une erreur est survenue pendant la génération de la réponse."
+	}
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()

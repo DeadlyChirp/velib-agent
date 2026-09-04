@@ -12,6 +12,7 @@ import (
 	"log/slog"
 
 	openaisdk "github.com/openai/openai-go"
+	openaiopt "github.com/openai/openai-go/option"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -66,6 +67,21 @@ func New(cfg config.Config, reg *tools.Registry, log *slog.Logger) (*Service, er
 	}
 	if cfg.ModelBaseURL != "" {
 		modelOpts = append(modelOpts, openai.WithBaseURL(cfg.ModelBaseURL))
+	}
+	if cfg.ReasoningEffort != "" {
+		// Mesure sur gpt-oss-120b via Groq : « low » fait passer une reponse de
+		// 1066 ms / 201 jetons a 587 ms / 98 jetons. Le gain vient des jetons de
+		// raisonnement, invisibles dans la reponse mais factures et attendus.
+		//
+		// Le compromis est sans danger ICI parce que le modele ne calcule rien :
+		// les agregations sont faites par les outils, en Go, de facon
+		// deterministe. Il lui reste a choisir l'outil et rediger — deux taches
+		// qui ne demandent pas de longues chaines de raisonnement.
+		//
+		// Envoye seulement si demande : ce champ n'existe pas partout.
+		modelOpts = append(modelOpts, openai.WithOpenAIOptions(
+			openaiopt.WithJSONSet("reasoning_effort", cfg.ReasoningEffort),
+		))
 	}
 	llm := openai.New(cfg.ModelName, modelOpts...)
 

@@ -26,6 +26,16 @@ type Config struct {
 	ModelAPIKey  string
 	ModelBaseURL string
 
+	// ReasoningEffort pilote la longueur du raisonnement des modeles qui en
+	// font (gpt-oss, o-series). Mesure sur gpt-oss-120b : « low » divise par
+	// deux la latence ET les jetons de completion, sans perte visible ici —
+	// ce sont les outils qui calculent, le modele ne fait que choisir l'outil
+	// et rediger.
+	//
+	// Vide par defaut, donc RIEN n'est envoye : le champ est propre a certains
+	// fournisseurs et un Mistral ou un Ollama rejetterait un parametre inconnu.
+	ReasoningEffort string
+
 	// PostgreSQL
 	PostgresDSN string
 
@@ -54,6 +64,8 @@ func Load() (Config, error) {
 		ModelName:    env("MODEL_NAME", "gpt-4o-mini"),
 		ModelAPIKey:  env("OPENAI_API_KEY", ""),
 		ModelBaseURL: env("OPENAI_BASE_URL", ""),
+
+		ReasoningEffort: env("REASONING_EFFORT", ""),
 
 		PostgresDSN: env("POSTGRES_DSN", ""),
 
@@ -107,6 +119,7 @@ func (c Config) Redacted() map[string]any {
 		"addr":            c.Addr,
 		"model":           c.ModelName,
 		"model_base_url":  orDefault(c.ModelBaseURL, "(défaut du fournisseur)"),
+		"reasoning_effort": orDefault(c.ReasoningEffort, "(non envoyé)"),
 		"model_api_key":   key,
 		"postgres":        redactDSN(c.PostgresDSN),
 		"velib_cache_ttl": c.VelibCacheTTL.String(),
