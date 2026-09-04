@@ -12,6 +12,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/session"
 
 	"velib-agent/internal/agent"
+	"velib-agent/internal/observability"
 )
 
 // Le flux SSE : la réponse arrive mot à mot, pas d'un bloc à la fin.
@@ -143,6 +144,10 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 	)
 	if err != nil {
 		s.log.Error("démarrage du tour", "erreur", err, "conversation", convID)
+		s.metrics.RecordTurn(observability.TurnRecord{
+			At: start, ConversationID: convID, Status: "error",
+			DurationMs: time.Since(start).Milliseconds(),
+		})
 		send(sseEvent{Type: "error",
 			Error: "impossible de contacter le modèle, réessayer dans un instant"})
 		return
@@ -172,6 +177,10 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 		if ev.IsError() {
 			s.log.Error("erreur pendant le tour", "conversation", convID,
 				"objet", ev.Response.Object)
+			s.metrics.RecordTurn(observability.TurnRecord{
+				At: start, ConversationID: convID, Status: "error",
+				DurationMs: time.Since(start).Milliseconds(), Tools: toolCalls,
+			})
 			send(sseEvent{Type: "error",
 				Error: "une erreur est survenue pendant la génération de la réponse"})
 			return
@@ -204,6 +213,27 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 	}
 
 	answer := full.String()
+
+	// Le tour est enregistré AVANT tout autre traitement de fin : si quelque
+	// chose échoue après, la mesure existe quand même. Persister avant
+	// d'enrichir, ici appliqué à la métrologie.
+	rec := observability.TurnRecord{
+		At:             start,
+		ConversationID: convID,
+		DurationMs:     time.Since(start).Milliseconds(),
+		Tools:          toolCalls,
+		AnswerChars:    len(answer),
+		Status:         "ok",
+	}
+	if strings.TrimSpace(answer) == "" {
+		rec.Status = "empty"
+	}
+	if tokens != nil {
+		rec.PromptTokens = tokens.Prompt
+		rec.CompletionTokens = tokens.Completion
+	}
+	s.metrics.RecordTurn(rec)
+
 	s.log.Info("tour terminé",
 		"conversation", convID,
 		"duree_ms", time.Since(start).Milliseconds(),

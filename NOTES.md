@@ -109,6 +109,16 @@ suite le dira.
 La spécification annonce la question sans détour. Voici la réponse, tenue au fil de
 l'eau.
 
+### Ce que les tests ont attrapé que la relecture avait laissé passer
+
+Le défaut n° 4 mérite d'être raconté : il n'a été trouvé ni en écrivant le code,
+ni en le relisant, mais en écrivant des tests qui appellent les outils **par leur
+vraie interface** (`tool.CallableTool`) plutôt que par la fonction Go interne.
+
+C'est la différence entre tester le calcul et tester le contrat. Le calcul était
+juste ; c'est le chemin réel qui était cassé, dans un cas que la production
+n'exerce pas encore mais qu'un second chemin de chargement aurait exercé demain.
+
 ### Ce que j'ai décidé moi-même, sans délégation
 
 - **Le découpage en paquets** et la frontière entre eux.
@@ -139,6 +149,7 @@ exemple utilisable en soutenance.)*
 | 1 | Décodage de `num_bikes_available_types` en `map[string]int` | Compile, ne lève aucune erreur, et renvoie **zéro vélo électrique** sur tout le parc. Un bug silencieux, le pire genre. | `[]map[string]int` + fusion par clé. Deux tests dédiés, dont un qui inverse l'ordre des éléments. |
 | 2 | `OccupancyRate()` renvoyant un simple `float64` | Division par zéro sur les 4 stations à capacité nulle → `+Inf` propagé jusqu'au modèle. | Signature `(float64, bool)` : le calcul refuse de produire un chiffre indéfendable. |
 | 3 | Import `github.com/trpc-group/trpc-agent-go` | Ne compile pas : le module est publié sous *vanity path* `trpc.group/...`. | Vérifié dans le `go.mod` du dépôt avant d'écrire. |
+| 4 | `Search()` lisant directement le champ privé `searchKey` | **Trouvé par un test, et c'est le défaut le plus intéressant du lot.** `searchKey` n'est rempli que par `join()`. Une `Station` construite par un autre chemin avait donc une clé vide, et la recherche renvoyait « aucun résultat » — **sans erreur, sans journal**. Une structure à moitié initialisée dont la panne est silencieuse. | Ajout de `normalizedName()` : la valeur pré-calculée si elle existe, sinon normalisation à la volée. Le chemin de production reste rapide, et plus aucun chemin ne peut échouer en silence. |
 
 ---
 

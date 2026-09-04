@@ -29,6 +29,24 @@ func normalize(s string) string {
 	return strings.Join(strings.Fields(strings.ToLower(out)), " ")
 }
 
+// normalizedName rend le nom comparable, en préférant la valeur pré-calculée.
+//
+// ⚠️ CORRECTION issue d'un test. La version précédente lisait directement le
+// champ privé searchKey, rempli uniquement par join(). Une Station construite
+// autrement — dans un test, ou demain par un second chemin de chargement —
+// avait donc une clé vide, et la recherche renvoyait « aucun résultat » sans
+// la moindre erreur. Une structure à moitié initialisée dont la panne est
+// silencieuse est précisément ce qu'il ne faut pas laisser dans un code.
+//
+// Le repli normalise à la volée : le chemin de production reste rapide, et
+// aucun autre chemin ne peut plus échouer en silence.
+func (s Station) normalizedName() string {
+	if s.searchKey != "" {
+		return s.searchKey
+	}
+	return normalize(s.Name)
+}
+
 // Match est une station trouvée par la recherche, avec son score.
 type Match struct {
 	Station Station
@@ -62,7 +80,7 @@ func Search(stations []Station, query string, limit int) []Match {
 
 	var matches []Match
 	for _, s := range stations {
-		score := scoreName(s.searchKey, q)
+		score := scoreName(s.normalizedName(), q)
 		if score > 0 {
 			matches = append(matches, Match{Station: s, Score: score})
 		}

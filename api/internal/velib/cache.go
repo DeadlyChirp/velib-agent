@@ -7,6 +7,25 @@ import (
 	"time"
 )
 
+// Recorder reçoit les événements du cache.
+//
+// L'interface est déclarée ICI, du côté qui consomme, plutôt que d'importer le
+// paquet d'observabilité. Le métier ne dépend donc pas de la métrologie :
+// internal/velib reste testable seul, et on peut brancher un autre collecteur
+// sans toucher à cette ligne.
+type Recorder interface {
+	RecordCacheHit()
+	RecordCacheRefresh(stations int, err error)
+	RecordStaleServed()
+}
+
+// noopRecorder est le défaut : compter n'est pas obligatoire pour fonctionner.
+type noopRecorder struct{}
+
+func (noopRecorder) RecordCacheHit()               {}
+func (noopRecorder) RecordCacheRefresh(int, error) {}
+func (noopRecorder) RecordStaleServed()            {}
+
 // Source est ce que les outils utilisent. L'interface existe pour que les tests
 // puissent injecter un parc figé sans toucher au réseau.
 type Source interface {
@@ -37,6 +56,8 @@ type Cache struct {
 	ttl     time.Duration
 	log     *slog.Logger
 
+	rec Recorder
+
 	mu       sync.Mutex
 	current  Snapshot
 	hasData  bool
@@ -61,6 +82,15 @@ func WithTTL(d time.Duration) CacheOption { return func(c *Cache) { c.ttl = d } 
 // WithLogger branche un journal structuré.
 func WithLogger(l *slog.Logger) CacheOption { return func(c *Cache) { c.log = l } }
 
+// WithRecorder branche un collecteur de métriques.
+func WithRecorder(r Recorder) CacheOption {
+	return func(c *Cache) {
+		if r != nil {
+			c.rec = r
+		}
+	}
+}
+
 // NewCache construit le cache.
 //
 // Le TTL par défaut est de 60 secondes. Le fichier annonce lui-même un ttl de
@@ -73,6 +103,7 @@ func NewCache(f fetcher, opts ...CacheOption) *Cache {
 		fetcher: f,
 		ttl:     60 * time.Second,
 		log:     slog.Default(),
+		rec:     noopRecorder{},
 	}
 	for _, o := range opts {
 		o(c)
@@ -88,6 +119,7 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	if c.hasData && time.Since(c.current.FetchedAt) < c.ttl {
 		snap := c.current
 		c.mu.Unlock()
+		c.rec.RecordCacheHit()
 		return snap, nil
 	}
 
@@ -129,6 +161,7 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	snap, err := c.fetcher.Fetch(fetchCtx)
 	cancel()
+	c.rec.RecordCacheRefresh(len(snap.Stations), err)
 
 	c.mu.Lock()
 	if err == nil {
@@ -143,6 +176,7 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		if hasStale {
 			// Le cas qui compte : la source est tombée mais le service tient.
+			c.rec.RecordStaleServed()
 			c.log.Warn("source Vélib injoignable, service de la dernière donnée connue",
 				"erreur", err,
 				"age_donnee_s", int64(time.Since(stale.FetchedAt).Seconds()))

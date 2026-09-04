@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracker — Agent Vélib'</title>
+
+<!--
+  Tableau de bord d'exploitation.
+
+  Il répond à une question précise : « est-ce que l'agent va bien, et si non,
+  où ça coince ? » Trois familles de chiffres, dans l'ordre où on les regarde
+  quand quelque chose ne va pas — la source de données d'abord, puis les outils,
+  puis les conversations.
+
+  Il n'affiche AUCUN contenu de message. Les identifiants de conversation et les
+  compteurs suffisent à diagnostiquer, et exposer les questions des utilisateurs
+  sur une page sans authentification serait une fuite déguisée en outil.
+-->
+
+<style>
+  :root {
+    --bg: #faf9f7; --panel: #fff; --ink: #1a1d21; --soft: #6b7280;
+    --line: #e5e2dd; --accent: #b23a1f; --accent-soft: #fdf2ee;
+    --good: #2c6e49; --good-soft: #eef5f0; --warn: #b45309; --warn-soft: #fdf6ec;
+    --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c; --panel: #1d2025; --ink: #e8e6e3; --soft: #9aa0a8;
+      --line: #2c3037; --accent: #e8734a; --accent-soft: #2a1f1a;
+      --good: #6ee7a8; --good-soft: #17241d; --warn: #fbbf24; --warn-soft: #2a2417;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 24px 60px; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+  .back { color: var(--accent); text-decoration: none; font-size: 14px; }
+  .back:hover { text-decoration: underline; }
+  .sub { color: var(--soft); font-size: 13px; margin: 0 0 24px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); color: var(--good); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--soft); margin: 32px 0 10px; font-weight: 600; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .card .label { font-size: 12px; color: var(--soft); margin-bottom: 5px; }
+  .card .value { font: 600 25px/1.1 var(--mono); letter-spacing: -0.02em; }
+  .card .note { font-size: 11px; color: var(--soft); margin-top: 4px; }
+  .card.good .value { color: var(--good); }
+  .card.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .card.warn .value { color: var(--warn); }
+  .card.bad { border-color: var(--accent); background: var(--accent-soft); }
+  .card.bad .value { color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { padding: 9px 14px; text-align: left; font-size: 13px;
+           border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+       color: var(--soft); font-weight: 600; background: var(--bg); }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 20px;
+          font: 11px var(--mono); }
+  .pill.ok { background: var(--good-soft); color: var(--good); }
+  .pill.error { background: var(--accent-soft); color: var(--accent); }
+  .pill.empty { background: var(--warn-soft); color: var(--warn); }
+  .pill.tool { background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
+  .pill.stale { background: var(--warn-soft); color: var(--warn); }
+
+  .empty-state { color: var(--soft); font-size: 14px; padding: 18px 0; }
+  .err { background: var(--accent-soft); border: 1px solid var(--accent);
+         color: var(--accent); padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Tracker</h1>
+    <a class="back" href="/">← Retour à l'agent</a>
+    <span class="live" id="live"><span class="dot"></span> <span id="uptime">—</span></span>
+  </header>
+  <p class="sub">
+    État interne du service. Rafraîchi toutes les 3 secondes.
+    Aucun contenu de message n'est conservé ni affiché.
+  </p>
+
+  <div id="error"></div>
+
+  <h2>Source de données Vélib'</h2>
+  <div class="cards" id="cache"></div>
+
+  <h2>Outils appelés par l'agent</h2>
+  <div class="scroll"><div id="tools"></div></div>
+
+  <h2>Conversations</h2>
+  <div class="cards" id="turns"></div>
+
+  <h2>Derniers tours</h2>
+  <div class="scroll"><div id="recent"></div></div>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function card(label, value, note, tone) {
+  const d = document.createElement("div");
+  d.className = "card" + (tone ? " " + tone : "");
+  const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+  const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+  d.append(l, v);
+  if (note) { const n = document.createElement("div"); n.className = "note"; n.textContent = note; d.appendChild(n); }
+  return d;
+}
+
+function table(headers, rows) {
+  const t = document.createElement("table");
+  const thead = t.createTHead().insertRow();
+  for (const h of headers) {
+    const th = document.createElement("th");
+    th.textContent = h.label;
+    if (h.num) th.style.textAlign = "right";
+    thead.appendChild(th);
+  }
+  const tb = t.createTBody();
+  for (const r of rows) {
+    const tr = tb.insertRow();
+    for (const cell of r) {
+      const td = tr.insertCell();
+      if (cell instanceof Node) td.appendChild(cell);
+      else td.textContent = cell;
+    }
+  }
+  headers.forEach((h, i) => {
+    if (h.num) for (const tr of tb.rows) tr.cells[i].className = "num";
+  });
+  return t;
+}
+
+function pill(text, cls) {
+  const s = document.createElement("span");
+  s.className = "pill " + cls;
+  s.textContent = text;
+  return s;
+}
+
+function duration(s) {
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.floor(s / 60) + " min";
+  return Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min";
+}
+
+function render(m) {
+  $("error").innerHTML = "";
+  $("uptime").textContent = "en ligne depuis " + duration(m.uptime_seconds);
+
+  // ── Source de données ─────────────────────────────────────────────────────
+  // L'ordre suit celui du diagnostic : la fraîcheur d'abord, parce qu'une
+  // donnée périmée fausse tout le reste sans rien casser visiblement.
+  const c = m.cache;
+  const age = c.last_fetch_age_s;
+  const $cache = $("cache");
+  $cache.innerHTML = "";
+
+  $cache.append(
+    card("Stations chargées", c.stations || "—",
+         c.stations ? "parc complet joint" : "jamais chargé",
+         c.stations ? "good" : "bad"),
+    card("Âge de la donnée",
+         age < 0 ? "—" : age + " s",
+         age < 0 ? "aucun chargement" : (age > 120 ? "au-delà du TTL de 60 s" : "dans le TTL"),
+         age < 0 ? "bad" : (age > 120 ? "warn" : "good")),
+    card("Taux de cache", c.hit_rate_pct + " %",
+         c.hits + " servis sans réseau, " + c.misses + " rafraîchissements"),
+    card("Rafraîchissements", c.refreshes,
+         c.refresh_errors + " en échec",
+         c.refresh_errors > 0 ? "warn" : null),
+    // Le compteur qui compte : à zéro en fonctionnement normal, non nul dès que
+    // la source amont a un problème.
+    card("Donnée périmée servie", c.stale_served,
+         c.stale_served > 0 ? "la source Vélib a été injoignable" : "jamais",
+         c.stale_served > 0 ? "bad" : "good")
+  );
+
+  // ── Outils ────────────────────────────────────────────────────────────────
+  const $tools = $("tools");
+  $tools.innerHTML = "";
+  if (!m.tools.length) {
+    $tools.innerHTML = '<p class="empty-state">Aucun appel d\'outil pour l\'instant. Posez une question à l\'agent.</p>';
+  } else {
+    $tools.appendChild(table(
+      [{label:"Outil"}, {label:"Appels",num:1}, {label:"Erreurs",num:1},
+       {label:"Moy.",num:1}, {label:"p50",num:1}, {label:"p95",num:1}, {label:"Max",num:1}],
+      m.tools.map(t => [
+        t.name,
+        String(t.calls),
+        t.errors > 0 ? pill(String(t.errors), "error") : "0",
+        t.avg_ms + " ms", t.p50_ms + " ms", t.p95_ms + " ms", t.max_ms + " ms"
+      ])
+    ));
+  }
+
+  // ── Conversations ─────────────────────────────────────────────────────────
+  const t = m.turns;
+  const $turns = $("turns");
+  $turns.innerHTML = "";
+  $turns.append(
+    card("Tours", t.total, t.empty > 0 ? t.empty + " sans réponse" : "tous ont répondu",
+         t.empty > 0 ? "warn" : null),
+    card("Erreurs", t.errors, t.error_rate_pct + " % des tours",
+         t.errors > 0 ? "bad" : "good"),
+    card("Latence moyenne", t.avg_ms + " ms", "de la question à la fin du flux"),
+    card("Jetons consommés", t.total_tokens.toLocaleString("fr-FR"),
+         t.prompt_tokens.toLocaleString("fr-FR") + " en entrée, " +
+         t.completion_tokens.toLocaleString("fr-FR") + " en sortie"),
+    card("Jetons par tour", t.avg_tokens_per_turn.toLocaleString("fr-FR"),
+         "coût moyen d'une question")
+  );
+
+  // ── Derniers tours ────────────────────────────────────────────────────────
+  const $recent = $("recent");
+  $recent.innerHTML = "";
+  if (!m.recent_turns.length) {
+    $recent.innerHTML = '<p class="empty-state">Aucun tour enregistré.</p>';
+    return;
+  }
+  $recent.appendChild(table(
+    [{label:"Heure"}, {label:"Conversation"}, {label:"Outils"},
+     {label:"Durée",num:1}, {label:"Jetons",num:1}, {label:"Statut"}],
+    m.recent_turns.map(r => {
+      const tools = document.createElement("span");
+      if (r.tools && r.tools.length) {
+        // Doublons fusionnés : un outil appelé deux fois dans le même tour
+        // affiche « network_summary ×2 » plutôt que deux pastilles identiques.
+        const counts = {};
+        for (const name of r.tools) counts[name] = (counts[name] || 0) + 1;
+        for (const [name, n] of Object.entries(counts)) {
+          tools.appendChild(pill(n > 1 ? name + " ×" + n : name, "tool"));
+        }
+      } else {
+        tools.textContent = "—";
+      }
+      const status = document.createElement("span");
+      status.appendChild(pill(r.status, r.status));
+      if (r.data_stale) status.appendChild(pill("donnée périmée", "stale"));
+
+      return [
+        new Date(r.at).toLocaleTimeString("fr-FR"),
+        r.conversation_id.slice(0, 8),
+        tools,
+        r.duration_ms + " ms",
+        (r.prompt_tokens + r.completion_tokens) || "—",
+        status
+      ];
+    })
+  ));
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/metrics");
+    if (!res.ok) throw new Error("statut " + res.status);
+    render(await res.json());
+  } catch (e) {
+    $("error").innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "err";
+    d.textContent = "Service injoignable : " + e.message;
+    $("error").appendChild(d);
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -14,18 +14,20 @@ import (
 
 	"velib-agent/internal/agent"
 	"velib-agent/internal/config"
+	"velib-agent/internal/observability"
 )
 
 // Server porte les dépendances des handlers.
 type Server struct {
-	agent *agent.Service
-	cfg   config.Config
-	log   *slog.Logger
+	agent   *agent.Service
+	cfg     config.Config
+	log     *slog.Logger
+	metrics *observability.Metrics
 }
 
 // New construit le serveur.
-func New(a *agent.Service, cfg config.Config, log *slog.Logger) *Server {
-	return &Server{agent: a, cfg: cfg, log: log}
+func New(a *agent.Service, cfg config.Config, log *slog.Logger, m *observability.Metrics) *Server {
+	return &Server{agent: a, cfg: cfg, log: log, metrics: m}
 }
 
 // Routes construit le routeur.
@@ -37,6 +39,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/metrics", s.handleMetrics)
 	mux.HandleFunc("GET /api/conversations", s.handleListConversations)
 	mux.HandleFunc("POST /api/conversations", s.handleCreateConversation)
 	mux.HandleFunc("GET /api/conversations/{id}", s.handleGetConversation)

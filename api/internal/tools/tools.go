@@ -25,19 +25,35 @@ import (
 	"velib-agent/internal/velib"
 )
 
+// Recorder reçoit la durée et l'issue de chaque appel d'outil.
+//
+// Déclarée côté consommateur, comme dans internal/velib : ce paquet ne dépend
+// pas de la métrologie, il l'accepte si on la lui donne.
+type Recorder interface {
+	RecordTool(name string, d time.Duration, failed bool)
+}
+
+type noopRecorder struct{}
+
+func (noopRecorder) RecordTool(string, time.Duration, bool) {}
+
 // Registry construit les outils au-dessus d'une source de parc.
 type Registry struct {
 	source velib.Source
 	log    *slog.Logger
+	rec    Recorder
 	now    func() time.Time // injectable pour les tests
 }
 
 // NewRegistry construit le registre.
-func NewRegistry(src velib.Source, log *slog.Logger) *Registry {
+func NewRegistry(src velib.Source, log *slog.Logger, rec Recorder) *Registry {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Registry{source: src, log: log, now: time.Now}
+	if rec == nil {
+		rec = noopRecorder{}
+	}
+	return &Registry{source: src, log: log, rec: rec, now: time.Now}
 }
 
 // All rend les outils dans l'ordre où ils seront présentés au modèle.
@@ -60,6 +76,8 @@ func (r *Registry) snapshot(ctx context.Context, toolName string) (velib.Snapsho
 	start := time.Now()
 	snap, err := r.source.Snapshot(ctx)
 	elapsed := time.Since(start)
+
+	r.rec.RecordTool(toolName, elapsed, err != nil)
 
 	if err != nil {
 		r.log.Error("outil en échec", "outil", toolName, "erreur", err, "duree", elapsed)

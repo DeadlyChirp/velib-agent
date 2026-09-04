@@ -22,6 +22,7 @@ import (
 	"velib-agent/internal/agent"
 	"velib-agent/internal/config"
 	"velib-agent/internal/httpapi"
+	"velib-agent/internal/observability"
 	"velib-agent/internal/tools"
 	"velib-agent/internal/velib"
 )
@@ -56,7 +57,12 @@ func run() error {
 	slog.SetDefault(log)
 	log.Info("configuration chargée", "config", cfg.Redacted())
 
-	// ── 2. Source Vélib' ─────────────────────────────────────────────────────
+	// ── 2. Métrologie ────────────────────────────────────────────────────────
+	// Instanciée avant tout le reste : c'est elle qui permettra de diagnostiquer
+	// ce qui suit sans avoir à deviner.
+	metrics := observability.New()
+
+	// ── 3. Source Vélib' ─────────────────────────────────────────────────────
 	client := velib.NewClient(
 		velib.WithInformationURL(cfg.VelibInformationURL),
 		velib.WithStatusURL(cfg.VelibStatusURL),
@@ -64,6 +70,7 @@ func run() error {
 	cache := velib.NewCache(client,
 		velib.WithTTL(cfg.VelibCacheTTL),
 		velib.WithLogger(log),
+		velib.WithRecorder(metrics),
 	)
 
 	// Le préchauffage n'est PAS bloquant en cas d'échec : refuser de démarrer
@@ -73,8 +80,8 @@ func run() error {
 	cache.Warm(warmCtx)
 	cancelWarm()
 
-	// ── 3. Agent ─────────────────────────────────────────────────────────────
-	registry := tools.NewRegistry(cache, log)
+	// ── 4. Agent ─────────────────────────────────────────────────────────────
+	registry := tools.NewRegistry(cache, log, metrics)
 	agentSvc, err := agent.New(cfg, registry, log)
 	if err != nil {
 		return err
@@ -85,10 +92,10 @@ func run() error {
 		}
 	}()
 
-	// ── 4. Serveur HTTP ──────────────────────────────────────────────────────
+	// ── 5. Serveur HTTP ──────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: httpapi.New(agentSvc, cfg, log).Routes(),
+		Handler: httpapi.New(agentSvc, cfg, log, metrics).Routes(),
 
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -110,7 +117,7 @@ func run() error {
 		}
 	}()
 
-	// ── 5. Arrêt propre ──────────────────────────────────────────────────────
+	// ── 6. Arrêt propre ──────────────────────────────────────────────────────
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
