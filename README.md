@@ -379,6 +379,48 @@ information — sur ce palier, **c'est le débit qui contraint, pas la latence**
 Diviser les jetons par cinq multiplie d'autant le nombre de questions possibles
 par minute.
 
+### Et si le parc devenait cent fois plus gros ?
+
+Le parc parisien fait 1 519 stations. Rien ne garantit que ça reste vrai — la
+métropole s'étend, et le même service appliqué à un opérateur national verrait
+un autre ordre de grandeur. J'ai donc mesuré à 1×, 10×, 100× et 1000×
+(`go test ./internal/velib -bench Echelle -benchmem -run XXX`).
+
+À 1 519 stations, tout tient en moins d'une milliseconde et rien ne se voit.
+À 1 519 000, deux fonctions décrochent — et pas celles que j'aurais parié :
+
+| Fonction | Avant | Après | Gain |
+|---|---|---|---|
+| `Rank` | **1 096 ms** | **57 ms** | ×19 |
+| `Search` | 242 ms · 110 Mo · 1,5 M allocs | **93 ms · 7,7 Mo · 43 allocs** | ×2,6 · ×35 000 allocs |
+| `Count` | 23 ms | 22 ms | déjà linéaire |
+| `Summarize` | 36 ms | 35 ms | déjà linéaire, zéro allocation |
+
+**`Rank` triait tout le parc pour rendre cinq stations.** Un `sort.SliceStable`
+sur 1,5 million d'éléments quand la réponse en contient vingt au plus. Remplacé
+par une sélection bornée (`topk.go`) : on garde une liste triée des k meilleurs,
+et chaque station est d'abord comparée au pire des retenus — une comparaison, et
+on passe. Un test vérifie sur 300 tirages aléatoires, avec beaucoup d'ex aequo,
+que le résultat est **identique** à celui d'un tri complet. Une optimisation qui
+change une réponse n'est pas une optimisation.
+
+**`Search` appelait `strings.Fields(query)` à l'intérieur de la boucle**, donc
+une fois par station, pour une requête identique à chaque tour : 1,5 million
+d'allocations jetées aussitôt. Découpé une fois, hors de la boucle.
+`FindStations` n'avait par ailleurs besoin que d'un total et de trois candidats,
+mais construisait et triait la liste complète des correspondances.
+
+Le point commun des deux : **invisible à l'échelle réelle**. 575 µs et 175 µs,
+personne ne regarde. C'est un changement d'ordre de grandeur qui les révèle.
+
+**Où ça casse vraiment.** Le cache garde tout le parc en mémoire : 208 octets
+par station, soit 301 Mo à 1,5 million. C'est la limite architecturale, et
+aucune micro-optimisation ne la déplace. Au-delà, il faut changer de nature :
+un index inversé sur les noms plutôt qu'un parcours linéaire, et un stockage
+externe interrogé par requête plutôt qu'un instantané complet en RAM. Ce n'est
+pas le bon compromis pour 1 519 stations — ce serait de la complexité payée
+d'avance pour un problème qu'on n'a pas.
+
 La leçon tient en une ligne : les trois choses que j'aurais optimisées d'instinct
 ne coûtaient rien, celle qui coûtait ne se voyait pas sans chronomètre, et mon
 premier chronomètre mesurait autre chose que ce que je croyais.
