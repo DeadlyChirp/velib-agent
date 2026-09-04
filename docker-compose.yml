@@ -1,0 +1,75 @@
+# La pile complète : `docker compose up` et le produit fonctionne.
+#
+# Trois services. Aucun n'a besoin d'une étape manuelle : le schéma PostgreSQL
+# est créé par le framework au premier démarrage, et l'API attend que la base
+# soit réellement prête avant de démarrer.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: velib
+      POSTGRES_PASSWORD: velib
+      POSTGRES_DB: velib
+    volumes:
+      # Volume nommé : c'est lui qui fait que les conversations survivent à un
+      # `docker compose down` suivi d'un `up`. Sans volume, la persistance
+      # exigée par la spécification serait une illusion — tout marcherait en apparence
+      # jusqu'au premier redémarrage.
+      - velib-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready plutôt qu'un délai fixe : un `sleep 10` marche sur ma
+      # machine et échoue sur une machine chargée. Ici l'API démarre quand la
+      # base répond vraiment, pas quand une minuterie le suppose.
+      test: ["CMD-SHELL", "pg_isready -U velib -d velib"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    # Port exposé pour pouvoir inspecter la base pendant la revue de code.
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: ./api
+    environment:
+      API_ADDR: ":8080"
+      POSTGRES_DSN: "postgres://velib:velib@postgres:5432/velib?sslmode=disable"
+
+      # Le modèle est choisi par variable d'environnement, comme demandé.
+      # Tout fournisseur compatible OpenAI convient : laisser OPENAI_BASE_URL
+      # vide pour OpenAI, ou le pointer vers Mistral, DeepSeek, un Ollama local.
+      MODEL_NAME: "${MODEL_NAME:-gpt-4o-mini}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY est obligatoire, copier .env.example vers .env}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+
+      VELIB_CACHE_TTL: "${VELIB_CACHE_TTL:-60s}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_FORMAT: "${LOG_FORMAT:-text}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/api", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  velib-pgdata:

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Vélib'</title>
+
+<!--
+  Front volontairement tenu en un seul fichier, sans build ni dépendance.
+
+  La spécification laisse le front libre. Choisir React aurait ajouté un node_modules,
+  une étape de build dans le Dockerfile et une surface à réviser, pour un écran
+  qui compte une liste et une zone de conversation. Ici tout est lisible d'un
+  bout à l'autre, et l'image finale est un nginx qui sert un fichier statique.
+
+  Ce qu'il fait quand même sérieusement : streaming SSE token par token, état
+  visible des appels d'outils, gestion des erreurs, et accessibilité clavier.
+-->
+
+<style>
+  :root {
+    --bg: #faf9f7;
+    --panel: #ffffff;
+    --ink: #1a1d21;
+    --soft: #6b7280;
+    --line: #e5e2dd;
+    --accent: #b23a1f;
+    --accent-soft: #fdf2ee;
+    --user: #eef2f7;
+    --radius: 10px;
+    --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --panel: #1d2025;
+      --ink: #e8e6e3;
+      --soft: #9aa0a8;
+      --line: #2c3037;
+      --accent: #e8734a;
+      --accent-soft: #2a1f1a;
+      --user: #252a31;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  /* ── Colonne des conversations ─────────────────────────────────────────── */
+  aside {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  aside header {
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  aside h1 {
+    margin: 0 0 2px;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  aside header p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--soft);
+  }
+
+  #new {
+    margin: 12px 16px;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  #new:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+  #list { flex: 1; overflow-y: auto; padding: 0 8px 16px; min-height: 0; }
+
+  .conv {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .conv:hover { background: var(--bg); }
+  .conv[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 550; }
+
+  .conv-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .del {
+    border: 0; background: transparent; color: var(--soft);
+    cursor: pointer; padding: 2px 5px; border-radius: 5px;
+    font-size: 15px; line-height: 1; opacity: 0;
+  }
+  .conv:hover .del, .del:focus { opacity: 1; }
+  .del:hover { color: var(--accent); background: var(--panel); }
+
+  /* ── Zone de conversation ──────────────────────────────────────────────── */
+  main { display: flex; flex-direction: column; min-height: 0; }
+
+  #thread { flex: 1; overflow-y: auto; padding: 28px 24px; min-height: 0; }
+  #inner { max-width: 720px; margin: 0 auto; }
+
+  .msg { margin-bottom: 20px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+
+  .bubble {
+    max-width: 88%;
+    padding: 11px 15px;
+    border-radius: 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .user .bubble { background: var(--user); border-bottom-right-radius: 4px; }
+  .assistant .bubble {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-bottom-left-radius: 4px;
+  }
+  .error .bubble {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  /* Appels d'outils : rendre l'attente lisible plutôt que de laisser
+     l'utilisateur devant un écran figé. */
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tool {
+    font: 11px/1 var(--mono);
+    padding: 4px 8px;
+    border-radius: 20px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--line);
+  }
+
+  .cursor {
+    display: inline-block; width: 7px; height: 15px;
+    background: var(--accent); vertical-align: text-bottom;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .meta { font: 11px var(--mono); color: var(--soft); margin-top: 6px; }
+
+  /* ── Écran d'accueil ───────────────────────────────────────────────────── */
+  .empty { color: var(--soft); padding: 40px 0; }
+  .empty h2 { color: var(--ink); font-size: 17px; margin: 0 0 6px; }
+  .empty p { margin: 0 0 18px; font-size: 14px; }
+
+  .suggestions { display: flex; flex-direction: column; gap: 7px; }
+  .sug {
+    text-align: left; padding: 10px 13px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel); color: var(--ink);
+    font: inherit; font-size: 14px; cursor: pointer;
+    transition: border-color .15s;
+  }
+  .sug:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Saisie ────────────────────────────────────────────────────────────── */
+  form {
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    padding: 14px 24px 18px;
+  }
+  .row { max-width: 720px; margin: 0 auto; display: flex; gap: 9px; align-items: flex-end; }
+
+  textarea {
+    flex: 1; resize: none;
+    padding: 11px 13px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg); color: var(--ink);
+    font: inherit; max-height: 160px;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  button[type=submit] {
+    padding: 11px 20px; border: 0; border-radius: var(--radius);
+    background: var(--accent); color: #fff;
+    font: inherit; font-weight: 550; cursor: pointer;
+  }
+  button[type=submit]:disabled { opacity: .45; cursor: not-allowed; }
+
+  .hint { max-width: 720px; margin: 8px auto 0; font-size: 11px; color: var(--soft); }
+
+  @media (max-width: 720px) {
+    body { grid-template-columns: 1fr; }
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <header>
+    <h1>Agent Vélib'</h1>
+    <p>Parc de stations de Paris et sa métropole</p>
+  </header>
+  <button id="new">+ Nouvelle conversation</button>
+  <div id="list" role="list"></div>
+</aside>
+
+<main>
+  <div id="thread"><div id="inner"></div></div>
+
+  <form id="form">
+    <div class="row">
+      <textarea id="input" rows="1" placeholder="Posez une question sur le parc Vélib'…"
+                aria-label="Votre question"></textarea>
+      <button type="submit" id="send">Envoyer</button>
+    </div>
+    <p class="hint">Entrée pour envoyer · Maj+Entrée pour un retour à la ligne</p>
+  </form>
+</main>
+
+<script>
+// L'API est servie par le même hôte via le proxy nginx : pas d'URL en dur,
+// donc rien à changer entre le poste de développement et le conteneur.
+const API = "/api";
+
+let currentId = null;
+let streaming = false;
+
+const $list   = document.getElementById("list");
+const $inner  = document.getElementById("inner");
+const $thread = document.getElementById("thread");
+const $input  = document.getElementById("input");
+const $send   = document.getElementById("send");
+const $form   = document.getElementById("form");
+
+const SUGGESTIONS = [
+  "Combien de vélos électriques sont disponibles sur l'ensemble du parc ?",
+  "Quel pourcentage des stations est hors service ?",
+  "Quelles sont les cinq stations qui ont le plus de bornes libres ?",
+  "Combien de vélos y a-t-il à la station Benjamin Godard ?",
+  "Liste-moi toutes les stations vides."
+];
+
+// ── Utilitaires ─────────────────────────────────────────────────────────────
+
+async function api(path, options = {}) {
+  const res = await fetch(API + path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+  });
+  if (!res.ok && res.status !== 204) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `erreur ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function scrollDown() { $thread.scrollTop = $thread.scrollHeight; }
+
+// textContent et jamais innerHTML : le contenu vient d'un modèle de langage,
+// donc d'une source qu'on ne contrôle pas. L'injecter en HTML serait une faille
+// XSS offerte.
+function bubble(role, text) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  const b = document.createElement("div");
+  b.className = "bubble";
+  b.textContent = text;
+  wrap.appendChild(b);
+  $inner.appendChild(wrap);
+  scrollDown();
+  return b;
+}
+
+// ── Conversations ───────────────────────────────────────────────────────────
+
+async function loadConversations() {
+  try {
+    const { conversations } = await api("/conversations");
+    $list.innerHTML = "";
+    for (const c of conversations) {
+      const row = document.createElement("div");
+      row.className = "conv";
+      row.setAttribute("role", "listitem");
+      row.setAttribute("aria-current", String(c.id === currentId));
+
+      const title = document.createElement("span");
+      title.className = "conv-title";
+      title.textContent = c.title || "Conversation";
+      title.onclick = () => openConversation(c.id);
+
+      const del = document.createElement("button");
+      del.className = "del";
+      del.textContent = "×";
+      del.title = "Supprimer";
+      del.setAttribute("aria-label", "Supprimer « " + (c.title || "conversation") + " »");
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm("Supprimer cette conversation ?")) return;
+        await api("/conversations/" + c.id, { method: "DELETE" });
+        if (currentId === c.id) { currentId = null; showWelcome(); }
+        loadConversations();
+      };
+
+      row.append(title, del);
+      $list.appendChild(row);
+    }
+  } catch (e) {
+    $list.innerHTML = "";
+    const p = document.createElement("p");
+    p.style.cssText = "padding:12px 16px;font-size:13px;color:var(--soft)";
+    p.textContent = "Service indisponible : " + e.message;
+    $list.appendChild(p);
+  }
+}
+
+async function newConversation() {
+  const c = await api("/conversations", { method: "POST" });
+  currentId = c.id;
+  $inner.innerHTML = "";
+  await loadConversations();
+  $input.focus();
+  return c.id;
+}
+
+async function openConversation(id) {
+  currentId = id;
+  $inner.innerHTML = "";
+  const c = await api("/conversations/" + id);
+  for (const m of c.messages) bubble(m.role === "user" ? "user" : "assistant", m.content);
+  if (!c.messages.length) showSuggestions();
+  loadConversations();
+}
+
+function showWelcome() {
+  $inner.innerHTML = "";
+  const box = document.createElement("div");
+  box.className = "empty";
+  const h = document.createElement("h2");
+  h.textContent = "Que voulez-vous savoir sur le parc Vélib' ?";
+  const p = document.createElement("p");
+  p.textContent = "1 519 stations à Paris et dans sa métropole, en temps réel.";
+  box.append(h, p);
+  $inner.appendChild(box);
+  showSuggestions();
+}
+
+function showSuggestions() {
+  const box = document.createElement("div");
+  box.className = "suggestions";
+  for (const s of SUGGESTIONS) {
+    const b = document.createElement("button");
+    b.className = "sug";
+    b.textContent = s;
+    b.onclick = () => { $input.value = s; $form.requestSubmit(); };
+    box.appendChild(b);
+  }
+  $inner.appendChild(box);
+}
+
+// ── Envoi et streaming ──────────────────────────────────────────────────────
+
+async function send(question) {
+  if (streaming) return;
+  if (!currentId) await newConversation();
+
+  // Retire l'écran d'accueil au premier message.
+  const welcome = $inner.querySelector(".empty, .suggestions");
+  if (welcome) $inner.innerHTML = "";
+
+  bubble("user", question);
+
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  const b = document.createElement("div");
+  b.className = "bubble";
+  const toolbar = document.createElement("div");
+  toolbar.className = "tools";
+  const text = document.createElement("span");
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  b.append(toolbar, text, cursor);
+  wrap.appendChild(b);
+  $inner.appendChild(wrap);
+  scrollDown();
+
+  streaming = true;
+  $send.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/conversations/${currentId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: question })
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `erreur ${res.status}`);
+    }
+
+    // Lecture du flux SSE. On accumule dans un tampon parce qu'un événement
+    // peut être coupé en plein milieu entre deux paquets réseau : découper
+    // naïvement sur chaque morceau reçu produirait du JSON tronqué.
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop();          // le dernier morceau est peut-être incomplet
+
+      for (const part of parts) {
+        const line = part.split("\n").find(l => l.startsWith("data: "));
+        if (!line) continue;
+
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (ev.type === "token") {
+          text.textContent += ev.content;
+          scrollDown();
+        } else if (ev.type === "tool") {
+          const chip = document.createElement("span");
+          chip.className = "tool";
+          chip.textContent = ev.tool;
+          toolbar.appendChild(chip);
+          scrollDown();
+        } else if (ev.type === "error") {
+          wrap.className = "msg error";
+          text.textContent = ev.error;
+        } else if (ev.type === "done") {
+          if (ev.full) text.textContent = ev.full;
+          if (ev.tokens) {
+            const m = document.createElement("div");
+            m.className = "meta";
+            m.textContent = `${ev.tokens.total} jetons`;
+            b.appendChild(m);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    wrap.className = "msg error";
+    text.textContent = "Erreur : " + e.message;
+  } finally {
+    cursor.remove();
+    streaming = false;
+    $send.disabled = false;
+    scrollDown();
+    loadConversations();   // rafraîchit le titre posé au premier message
+    $input.focus();
+  }
+}
+
+// ── Interactions ────────────────────────────────────────────────────────────
+
+$form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = $input.value.trim();
+  if (!q) return;
+  $input.value = "";
+  $input.style.height = "auto";
+  send(q);
+});
+
+// Entrée envoie, Maj+Entrée fait un retour à la ligne : la convention que tout
+// le monde attend d'une zone de conversation.
+$input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    $form.requestSubmit();
+  }
+});
+
+// La zone grandit avec le texte, jusqu'au plafond fixé en CSS.
+$input.addEventListener("input", () => {
+  $input.style.height = "auto";
+  $input.style.height = Math.min($input.scrollHeight, 160) + "px";
+});
+
+document.getElementById("new").onclick = async () => {
+  await newConversation();
+  showWelcome();
+};
+
+// ── Démarrage ───────────────────────────────────────────────────────────────
+
+(async function start() {
+  await loadConversations();
+  showWelcome();
+  $input.focus();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+name: CI
+
+# La CI protège trois choses, dans cet ordre d'importance :
+#   1. les agrégations sont justes — c'est là que vit la valeur du produit ;
+#   2. la taille des sorties d'outils reste bornée — l'invariant qui protège
+#      la fenêtre de contexte, et qui se dégraderait sans surveillance ;
+#   3. la pile démarre vraiment avec docker compose.
+#
+# Les tests marqués `live` ne tournent PAS ici : ils dépendent d'un service
+# public tiers, et une CI qui rougit parce qu'un serveur externe redémarre
+# n'apprend plus rien à personne. Ils sont lancés à la main avant le rendu.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests et analyse statique
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: api/go.sum
+
+      - name: Dépendances vérifiées
+        working-directory: api
+        run: |
+          go mod download
+          # Échoue si go.mod ou go.sum ne sont pas à jour : une dépendance
+          # ajoutée sans être committée casse le build de tout le monde sauf
+          # celui qui l'a ajoutée.
+          go mod verify
+
+      - name: Formatage
+        working-directory: api
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Fichiers non formatés :"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Analyse statique
+        working-directory: api
+        run: go vet ./...
+
+      - name: Tests avec détecteur de compétition
+        working-directory: api
+        # -race est essentiel ici : le cache est lu par plusieurs requêtes
+        # simultanées, et une compétition sur le snapshot partagé ne se
+        # manifesterait qu'en production, de façon intermittente.
+        run: go test -race -count=1 ./...
+
+      - name: Couverture
+        working-directory: api
+        run: |
+          go test -coverprofile=cover.out ./internal/... > /dev/null
+          go tool cover -func=cover.out | tail -1
+
+  build:
+    name: Images Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construction des images
+        run: docker compose build
+
+      - name: La pile démarre et répond
+        env:
+          # Clé factice : on vérifie que le service démarre et que sa route de
+          # santé répond, pas qu'il sait parler à un modèle.
+          OPENAI_API_KEY: ci-dummy-key
+        run: |
+          docker compose up -d postgres api
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8080/api/health > /dev/null; then
+              echo "API en ligne après ${i}s"
+              curl -s http://localhost:8080/api/health
+              docker compose down -v
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "L'API n'a pas répondu en 40 s :"
+          docker compose logs api
+          docker compose down -v
+          exit 1
