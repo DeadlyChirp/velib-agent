@@ -17,9 +17,18 @@ docker compose up --build
 Le front est sur **http://localhost:3000**, l'API sur **http://localhost:8080**.
 
 Le modèle se choisit par variable d'environnement. Tout fournisseur compatible
-OpenAI convient — OpenAI, Mistral, DeepSeek, ou un Ollama local — en changeant
-`MODEL_NAME` et `OPENAI_BASE_URL`. Les combinaisons testées sont dans
+OpenAI convient — OpenAI, Groq, Mistral, DeepSeek, ou un Ollama local — en
+changeant `MODEL_NAME` et `OPENAI_BASE_URL`. Les combinaisons testées sont dans
 `.env.example`.
+
+Pour essayer sans carte bancaire, une clé Groq est gratuite et immédiate sur
+[console.groq.com/keys](https://console.groq.com/keys) :
+
+```bash
+MODEL_NAME=llama-3.3-70b-versatile
+OPENAI_API_KEY=gsk_...
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+```
 
 ```bash
 make test        # 18 tests unitaires, sans réseau ni base
