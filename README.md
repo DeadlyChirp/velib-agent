@@ -295,10 +295,21 @@ les conversations d'Alice.
 | `config` | 95 % | rédaction des secrets, défauts, validation |
 | `observability` | 94 % | division par zéro, borne mémoire, accès concurrent |
 | `tools` | 88 % | schémas et bornes des sorties |
-| `velib` | 64 % | agrégations, cache, jointure |
-| `httpapi` | 2,7 % | *voir ci-dessous* |
+| `velib` | 85 % | agrégations, cache, jointure, **client HTTP** |
+| `httpapi` | 18 % | limite de débit, traduction des erreurs, titres |
 
-**Sur les 2,7 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
+Total : **62 %**, contre 32 % avant cette passe.
+
+La frontière réseau mérite une mention. `client.go` était à **0 %** : c'est
+pourtant là que vivent les vrais bugs, parce que c'est le seul endroit qui
+dépend d'un tiers. Douze tests le couvrent maintenant, avec un serveur simulé
+plutôt que la vraie API — on ne peut pas demander à Smovengo de renvoyer un 500
+à la demande. Ils vérifient la reprise sur 500 et 429, l'absence de reprise sur
+404 (insister ne répare pas une URL fausse), le JSON tronqué qui doit produire
+une erreur et non un parc vide, l'annulation qui remonte immédiatement, et le
+délai de garde sur une source qui accepte la connexion puis se tait.
+
+**Sur les 18 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
 les tests de ce paquet interrogent le binaire conteneurisé par HTTP, donc Go ne
 peut pas les compter. Le compromis est délibéré — ils exercent le vrai routage,
 la vraie base et la vraie sérialisation. C'est d'ailleurs ce qui leur a fait
@@ -312,6 +323,34 @@ DSN — tout en restant assez lisible pour diagnostiquer. Celui d'`observability
 vérifie que l'historique en mémoire reste **borné** : sans plafond, un service
 qui tourne des semaines accumule un tour par question, et la fuite ne se voit
 que tard.
+
+---
+
+## Évaluation : la réponse est-elle juste ?
+
+```bash
+python audit/evaluation.py
+```
+
+Le problème d'un agent qui parle bien : rien ne distingue à l'œil une réponse
+exacte d'une réponse plausible. Ce harnais tranche en comparant ce que dit
+l'agent à ce que calculent les outils, sur la même donnée.
+
+**La vérité terrain n'est jamais écrite en dur.** Elle est recalculée à chaque
+exécution depuis le service, parce que le parc bouge à la minute : un test qui
+attend « 100 stations vides » échoue le lendemain sans qu'aucun code n'ait
+changé, et on finit par ignorer ses échecs. C'est d'ailleurs l'erreur que j'ai
+commise en premier, sur la mesure des modèles, avant de la corriger.
+
+Six cas, choisis parce qu'ils sont **jugeables sans connaître la réponse** :
+
+- le total annoncé correspond au parc réellement en cache
+- le compte et le pourcentage annoncés sont cohérents **entre eux**, ce qui
+  attrape l'agent qui recopie un chiffre juste puis calcule de tête
+- un classement « le plus de » est effectivement décroissant
+- une station inventée produit un refus, jamais un chiffre
+- une demande d'énumération est refusée **et** redirigée
+- toute réponse chiffrée s'appuie sur un appel d'outil réel
 
 ---
 
