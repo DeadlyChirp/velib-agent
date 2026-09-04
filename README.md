@@ -290,13 +290,28 @@ forme exacte du flux SSE telle qu'un navigateur la reçoit, et surtout
 **l'isolation entre utilisateurs** — un test vérifie que Bob ne voit ni ne lit
 les conversations d'Alice.
 
-**Sur la couverture, une précision honnête.** `internal/httpapi` affiche 2,7 %,
-et le chiffre est trompeur : ces tests interrogent le binaire conteneurisé par
-HTTP, donc Go ne peut pas les compter. Le compromis est délibéré — ils exercent
-le vrai routage, la vraie base et la vraie sérialisation, ce qu'un test en
-processus avec une fausse dépendance ne ferait pas. `internal/tools` (88 %) et
-`internal/velib` (64 %) portent la logique métier et sont testés en processus,
-là où le chiffre veut dire quelque chose.
+| Paquet | Couverture | Ce qui est vérifié |
+|---|---|---|
+| `config` | 95 % | rédaction des secrets, défauts, validation |
+| `observability` | 94 % | division par zéro, borne mémoire, accès concurrent |
+| `tools` | 88 % | schémas et bornes des sorties |
+| `velib` | 64 % | agrégations, cache, jointure |
+| `httpapi` | 2,7 % | *voir ci-dessous* |
+
+**Sur les 2,7 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
+les tests de ce paquet interrogent le binaire conteneurisé par HTTP, donc Go ne
+peut pas les compter. Le compromis est délibéré — ils exercent le vrai routage,
+la vraie base et la vraie sérialisation. C'est d'ailleurs ce qui leur a fait
+trouver le bug d'URL de base : un test en processus avec une fausse dépendance
+n'aurait jamais construit la vraie requête HTTP.
+
+Deux tests méritent une mention, parce qu'ils protègent autre chose que du
+métier. Celui de `config` vérifie qu'**aucun secret ne fuit** dans la
+configuration journalisée au démarrage — ni la clé d'API, ni le mot de passe du
+DSN — tout en restant assez lisible pour diagnostiquer. Celui d'`observability`
+vérifie que l'historique en mémoire reste **borné** : sans plafond, un service
+qui tourne des semaines accumule un tour par question, et la fuite ne se voit
+que tard.
 
 ---
 
