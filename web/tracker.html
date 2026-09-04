@@ -19,23 +19,56 @@
 -->
 
 <style>
+  /* Mêmes jetons que la page de conversation, aux mêmes valeurs OKLCH. Les
+     NOMS restent ceux de cette page pour garder le diff lisible : c'est la
+     palette qui est partagée, pas le vocabulaire.
+
+     Aucun gris pur : tous les neutres sont teintés vers l'accent, sinon les
+     deux pages ne se ressemblent qu'à moitié. */
   :root {
-    --bg: #faf9f7; --panel: #fff; --ink: #1a1d21; --soft: #6b7280;
-    --line: #e5e2dd; --accent: #b23a1f; --accent-soft: #fdf2ee;
-    --good: #2c6e49; --good-soft: #eef5f0; --warn: #b45309; --warn-soft: #fdf6ec;
-    --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    color-scheme: light dark;
+    --bg:          oklch(98.6% 0.004 60);
+    --panel:       oklch(100% 0 0);
+    --ink:         oklch(24% 0.012 55);
+    --soft:        oklch(52% 0.014 55);
+    --line:        oklch(91.5% 0.007 60);
+    --accent:      oklch(52% 0.148 38);
+    --accent-soft: oklch(96% 0.020 40);
+    --good:        oklch(45% 0.115 150);
+    --good-soft:   oklch(96% 0.022 150);
+    --warn:        oklch(52% 0.130 70);
+    --warn-soft:   oklch(96.5% 0.028 75);
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+            "Inter", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+            Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #16181c; --panel: #1d2025; --ink: #e8e6e3; --soft: #9aa0a8;
-      --line: #2c3037; --accent: #e8734a; --accent-soft: #2a1f1a;
-      --good: #6ee7a8; --good-soft: #17241d; --warn: #fbbf24; --warn-soft: #2a2417;
+      --bg:          oklch(17.5% 0.008 55);
+      --panel:       oklch(21% 0.009 55);
+      --ink:         oklch(93% 0.006 60);
+      --soft:        oklch(70% 0.010 60);
+      --line:        oklch(28% 0.010 55);
+      --accent:      oklch(74% 0.135 42);
+      --accent-soft: oklch(27% 0.038 40);
+      --good:        oklch(74% 0.130 150);
+      --good-soft:   oklch(25% 0.035 150);
+      --warn:        oklch(80% 0.120 75);
+      --warn-soft:   oklch(26% 0.035 75);
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 28px 24px 60px; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 0.9375rem/1.6 var(--sans);
+    /* Chiffres tabulaires : cette page n'est QUE des nombres empilés, et deux
+       colonnes de compteurs qui ne s'alignent pas se lisent mal. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
   }
   .wrap { max-width: 1080px; margin: 0 auto; }
 
@@ -120,13 +153,27 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+// Même règle typographique que la page de conversation : espace fine insécable
+// dans les milliers et avant la ponctuation haute. « 1 519 », jamais « 1519 ».
+// Deux pages qui affichent les mêmes chiffres doivent les écrire pareil.
+const FINE = " ";
+
+function typo(s) {
+  return String(s)
+    .replace(/\b\d{4,9}\b/g, function (m) {
+      return m.replace(/\B(?=(\d{3})+$)/g, FINE);
+    })
+    .replace(/[ \u00a0\u202f]*([?!;:])/g, FINE + "$1");
+}
+
+
 function card(label, value, note, tone) {
   const d = document.createElement("div");
   d.className = "card" + (tone ? " " + tone : "");
   const l = document.createElement("div"); l.className = "label"; l.textContent = label;
-  const v = document.createElement("div"); v.className = "value"; v.textContent = value;
+  const v = document.createElement("div"); v.className = "value"; v.textContent = typo(value);
   d.append(l, v);
-  if (note) { const n = document.createElement("div"); n.className = "note"; n.textContent = note; d.appendChild(n); }
+  if (note) { const n = document.createElement("div"); n.className = "note"; n.textContent = typo(note); d.appendChild(n); }
   return d;
 }
 
@@ -145,7 +192,7 @@ function table(headers, rows) {
     for (const cell of r) {
       const td = tr.insertCell();
       if (cell instanceof Node) td.appendChild(cell);
-      else td.textContent = cell;
+      else td.textContent = typo(cell);
     }
   }
   headers.forEach((h, i) => {

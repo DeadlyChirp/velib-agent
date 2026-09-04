@@ -281,6 +281,27 @@
     line-height: 1.5;
   }
 
+  /* Lien vers le tableau de bord, en pied de colonne : on y va rarement, mais
+     quand on y va c'est qu'il y a un problème. Pas un onglet de premier plan. */
+  .side-foot {
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--rule);
+  }
+  .side-foot a {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: var(--t-small)/1 var(--sans);
+    color: var(--ink-soft);
+    text-decoration: none;
+    transition: color var(--fast) var(--ease);
+  }
+  .side-foot a::after {
+    content: "→";
+    font: var(--t-micro)/1 var(--mono);
+    transition: transform var(--fast) var(--ease);
+  }
+  .side-foot a:hover { color: var(--accent); }
+  .side-foot a:hover::after { transform: translateX(2px); }
+
   /* ── Transcription ──────────────────────────────────────────────────────── */
   main { display: flex; flex-direction: column; min-height: 0; }
 
@@ -573,7 +594,11 @@
       transition: transform var(--calm) var(--ease);
       box-shadow: var(--lift);
     }
-    body[data-drawer="open"] aside { transform: none; }
+    /* translateX(0) plutôt que le mot-clé « none » : l'interpolation depuis
+       translateX(-100%) vers none n'est pas fiable selon les moteurs, alors
+       que deux translations s'interpolent toujours. Robustesse, pas
+       correction : mesuré, le tiroir fonctionnait déjà. */
+    body[data-drawer="open"] aside { transform: translateX(0); }
 
     .drawer-toggle { display: flex; }
 
@@ -631,6 +656,10 @@
 
   <p class="list-label" id="list-label">Historique</p>
   <div id="list" role="list" aria-labelledby="list-label"></div>
+
+  <div class="side-foot">
+    <a href="/tracker.html">Tableau de bord</a>
+  </div>
 </aside>
 
 <main>
@@ -639,7 +668,7 @@
   <form id="form">
     <div class="row">
       <div class="field">
-        <textarea id="input" rows="1" placeholder="Posez une question sur le parc Vélib'…"
+        <textarea id="input" rows="1" placeholder="Posez votre question…"
                   aria-label="Votre question" autocomplete="off"></textarea>
       </div>
       <button type="submit" id="send">Envoyer</button>
