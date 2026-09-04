@@ -180,8 +180,18 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 
 		// Erreur remontée par le framework.
 		if ev.IsError() {
+			// Le detail vit dans Response.Error, pas dans Object qui ne porte
+			// que le type d'evenement. Logger Object seul produisait une ligne
+			// « objet="" » : une erreur signalee mais impossible a diagnostiquer.
+			errType, errMsg, errCode := "", "", ""
+			if e := ev.Response.Error; e != nil {
+				errType, errMsg = e.Type, e.Message
+				if e.Code != nil {
+					errCode = *e.Code
+				}
+			}
 			s.log.Error("erreur pendant le tour", "conversation", convID,
-				"objet", ev.Response.Object)
+				"type", errType, "message", errMsg, "code", errCode)
 			s.metrics.RecordTurn(observability.TurnRecord{
 				At: start, ConversationID: convID, Status: "error",
 				DurationMs: time.Since(start).Milliseconds(), Tools: toolCalls,

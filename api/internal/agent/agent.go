@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	openaisdk "github.com/openai/openai-go"
+
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
@@ -44,7 +46,24 @@ func New(cfg config.Config, reg *tools.Registry, log *slog.Logger) (*Service, er
 	// Compatible OpenAI, donc interchangeable par variable d'environnement :
 	// OpenAI, Mistral, DeepSeek ou un Ollama local se branchent en changeant
 	// MODEL_NAME et OPENAI_BASE_URL, sans recompiler.
-	modelOpts := []openai.Option{openai.WithAPIKey(cfg.ModelAPIKey)}
+	modelOpts := []openai.Option{
+		openai.WithAPIKey(cfg.ModelAPIKey),
+
+		// Les modeles « raisonneurs » renvoient un champ reasoning_content que
+		// le framework rejoue tel quel dans l'historique au tour suivant. Groq
+		// refuse ce champ en entree et repond 400 :
+		//   'messages.2' : property 'reasoning_content' is unsupported
+		//
+		// Concretement, le premier tour passe, l'appel d'outil part, et c'est le
+		// tour d'apres qui casse — donc uniquement les conversations a plusieurs
+		// echanges, celles qu'on teste en dernier.
+		//
+		// Le raisonnement ne sert qu'au modele pendant son tour : le retirer de
+		// l'historique ne change pas les reponses. On le retire donc juste avant
+		// l'envoi, ce qui laisse le projet compatible Groq sans rien casser
+		// ailleurs — OpenAI et Mistral ignorent simplement un champ absent.
+		openai.WithChatRequestCallback(stripReasoningContent),
+	}
 	if cfg.ModelBaseURL != "" {
 		modelOpts = append(modelOpts, openai.WithBaseURL(cfg.ModelBaseURL))
 	}
@@ -127,4 +146,30 @@ func UserKey(userID string) session.UserKey {
 func (s *Service) Ping(ctx context.Context) error {
 	_, err := s.Sessions.ListSessions(ctx, UserKey("healthcheck"))
 	return err
+}
+
+// stripReasoningContent retire le champ reasoning_content des messages
+// « assistant » avant l'envoi au fournisseur.
+//
+// Les modeles raisonneurs (gpt-oss, qwen3, o1…) renvoient leur reflexion dans
+// ce champ. Le framework la stocke et la rejoue dans l'historique au tour
+// suivant, ce que Groq refuse avec un 400 « property 'reasoning_content' is
+// unsupported ». Le framework n'expose pas d'option pour ne pas l'envoyer :
+// WithReasoningContentBackfill ne couvre que le cas ou le champ est vide.
+//
+// Le raisonnement ne sert qu'au modele pendant son propre tour, jamais aux
+// suivants. Le retirer de l'historique ne change donc pas les reponses, et les
+// fournisseurs qui l'acceptent se contentent de ne plus le voir.
+//
+// SetExtraFields remplace la table entiere, et le framework ne s'en sert que
+// pour ce champ : la vider suffit.
+func stripReasoningContent(_ context.Context, req *openaisdk.ChatCompletionNewParams) {
+	if req == nil {
+		return
+	}
+	for i := range req.Messages {
+		if a := req.Messages[i].OfAssistant; a != nil {
+			a.SetExtraFields(map[string]any{})
+		}
+	}
 }

@@ -199,8 +199,8 @@ type rankInput struct {
 	// inconnue et disparaît silencieusement. Vérifié en dumpant le schéma réel —
 	// le modèle ne voyait ni le plafond de 20 ni le sens de ascending=false.
 	Metric    string `json:"metric" jsonschema:"description=Critère de classement,enum=docks_available,enum=bikes_available,enum=ebikes,enum=capacity,required"`
-	Limit     int    `json:"limit" jsonschema:"description=Nombre de stations à renvoyer. Défaut 5 et maximum 20 — le serveur ramène toute valeur supérieure à 20"`
-	Ascending bool   `json:"ascending" jsonschema:"description=Mettre true pour les plus PETITES valeurs (classement croissant). Mettre false ou omettre pour les plus GRANDES valeurs (classement décroissant) — c'est le cas usuel"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"description=Nombre de stations à renvoyer. Défaut 5 et maximum 20 — le serveur ramène toute valeur supérieure à 20"`
+	Ascending bool   `json:"ascending,omitempty" jsonschema:"description=Mettre true pour les plus PETITES valeurs (classement croissant). Mettre false ou omettre pour les plus GRANDES valeurs (classement décroissant) — c'est le cas usuel"`
 }
 
 type rankOutput struct {
@@ -247,7 +247,7 @@ func (r *Registry) rankStations() tool.Tool {
 
 type countInput struct {
 	Filter     string `json:"filter" jsonschema:"description=Critère de sélection des stations,enum=empty,enum=full,enum=out_of_service,enum=has_ebikes,required"`
-	SampleSize int    `json:"sample_size" jsonschema:"description=Nombre d'exemples à joindre au total exact. Défaut 5 et maximum 10 — le serveur ramène toute valeur supérieure à 10"`
+	SampleSize int    `json:"sample_size,omitempty" jsonschema:"description=Nombre d'exemples à joindre au total exact. Défaut 5 et maximum 10 — le serveur ramène toute valeur supérieure à 10"`
 }
 
 type countOutput struct {
