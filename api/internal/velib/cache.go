@@ -58,6 +58,10 @@ type Cache struct {
 
 	rec Recorder
 
+	// Au-dela de ce multiple du TTL, on refuse de servir sans attendre : la
+	// donnee est trop vieille pour etre rendue en silence. Voir Snapshot.
+	staleFactor int
+
 	mu       sync.Mutex
 	current  Snapshot
 	hasData  bool
@@ -101,9 +105,10 @@ func WithRecorder(r Recorder) CacheOption {
 func NewCache(f fetcher, opts ...CacheOption) *Cache {
 	c := &Cache{
 		fetcher: f,
-		ttl:     60 * time.Second,
-		log:     slog.Default(),
-		rec:     noopRecorder{},
+		ttl:         60 * time.Second,
+		staleFactor: 10,
+		log:         slog.Default(),
+		rec:         noopRecorder{},
 	}
 	for _, o := range opts {
 		o(c)
@@ -123,7 +128,36 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 		return snap, nil
 	}
 
-	// 2. Un rafraîchissement est déjà en vol : on s'y raccroche au lieu d'en
+	// 2. Donnee perimee mais exploitable : on la sert TOUT DE SUITE et on
+	//    rafraichit derriere.
+	//
+	//    Mesure a l'origine de ce chemin : la source met 300 a 430 ms par
+	//    fichier, et le cache en charge deux — donc ~700 ms. Avec un TTL d'une
+	//    minute et un rafraichissement bloquant, une requete par minute payait
+	//    ces 700 ms pour tout le monde. Sur un tour d'agent deja long, c'est le
+	//    genre de pic qu'on ne remarque qu'en production.
+	//
+	//    Le compromis est franc : la donnee servie a au plus un TTL de retard.
+	//    Pour un comptage de velos qui bouge a la minute, personne ne verra la
+	//    difference — alors que tout le monde voit 700 ms d'attente.
+	//
+	//    Garde-fou : au-dela de staleFactor × TTL, on refuse de servir sans
+	//    attendre. Si la source est tombee depuis dix minutes, l'appelant doit
+	//    l'apprendre, pas recevoir des chiffres d'il y a un quart d'heure comme
+	//    s'ils etaient frais.
+	if c.hasData && time.Since(c.current.FetchedAt) < time.Duration(c.staleFactor)*c.ttl {
+		snap := c.current
+		if c.inFlight == nil {
+			cl := &call{done: make(chan struct{})}
+			c.inFlight = cl
+			go c.refresh(context.WithoutCancel(ctx), cl)
+		}
+		c.mu.Unlock()
+		c.rec.RecordCacheHit()
+		return snap, nil
+	}
+
+	// 3. Un rafraîchissement est déjà en vol : on s'y raccroche au lieu d'en
 	//    lancer un deuxième. Sans ça, dix questions simultanées après
 	//    expiration déclenchent dix téléchargements de 464 Ko.
 	if c.inFlight != nil {
@@ -149,12 +183,44 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 		}
 	}
 
-	// 3. C'est à nous de rafraîchir.
+	// 4. Rien d'exploitable en memoire : il faut attendre.
 	cl := &call{done: make(chan struct{})}
 	c.inFlight = cl
 	stale, hasStale := c.current, c.hasData
 	c.mu.Unlock()
 
+	c.refresh(ctx, cl)
+	snap, err := cl.snap, cl.err
+
+	if err != nil {
+		if hasStale {
+			// Le cas qui compte : la source est tombée mais le service tient.
+			c.rec.RecordStaleServed()
+			c.log.Warn("source Vélib injoignable, service de la dernière donnée connue",
+				"erreur", err,
+				"age_donnee_s", int64(time.Since(stale.FetchedAt).Seconds()))
+			return markStale(stale, err.Error()), nil
+		}
+		// Premier démarrage et source déjà en panne : là, on ne peut rien
+		// inventer, l'erreur remonte.
+		c.log.Error("source Vélib injoignable et aucune donnée en cache", "erreur", err)
+		return Snapshot{}, err
+	}
+
+	c.log.Info("parc Vélib rafraîchi", "stations", len(snap.Stations))
+	return snap, nil
+}
+
+// refresh execute UN rafraichissement et publie le resultat dans cl.
+//
+// Extrait du chemin bloquant pour etre appelable aussi depuis une goroutine :
+// c'est la meme fonction qui sert le demarrage a froid (l'appelant attend) et
+// le rafraichissement en arriere-plan (personne n'attend). Un seul corps, donc
+// un seul endroit ou se tromper.
+//
+// L'appelant DOIT avoir pose c.inFlight = cl avant d'appeler, sous le mutex :
+// c'est ce qui garantit qu'un seul rafraichissement part a la fois.
+func (c *Cache) refresh(ctx context.Context, cl *call) {
 	// Le rafraîchissement a son propre plafond de temps, indépendant de celui
 	// de l'appelant : si l'utilisateur ferme son navigateur, le parc doit
 	// quand même finir de se charger pour les requêtes suivantes.
@@ -174,22 +240,10 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	c.mu.Unlock()
 
 	if err != nil {
-		if hasStale {
-			// Le cas qui compte : la source est tombée mais le service tient.
-			c.rec.RecordStaleServed()
-			c.log.Warn("source Vélib injoignable, service de la dernière donnée connue",
-				"erreur", err,
-				"age_donnee_s", int64(time.Since(stale.FetchedAt).Seconds()))
-			return markStale(stale, err.Error()), nil
-		}
-		// Premier démarrage et source déjà en panne : là, on ne peut rien
-		// inventer, l'erreur remonte.
-		c.log.Error("source Vélib injoignable et aucune donnée en cache", "erreur", err)
-		return Snapshot{}, err
+		c.log.Warn("rafraîchissement Vélib en échec", "erreur", err)
+		return
 	}
-
 	c.log.Info("parc Vélib rafraîchi", "stations", len(snap.Stations))
-	return snap, nil
 }
 
 // markStale recopie un snapshot en le marquant périmé. On copie plutôt que de
