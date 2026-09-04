@@ -104,7 +104,7 @@ func WithRecorder(r Recorder) CacheOption {
 // coûterait 1,4 Mo pour une donnée identique.
 func NewCache(f fetcher, opts ...CacheOption) *Cache {
 	c := &Cache{
-		fetcher: f,
+		fetcher:     f,
 		ttl:         60 * time.Second,
 		staleFactor: 10,
 		log:         slog.Default(),

@@ -1,9 +1,9 @@
 package velib
 
 import (
-	"time"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func benchStations(n int) []Station {

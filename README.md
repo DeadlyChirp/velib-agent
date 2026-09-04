@@ -272,6 +272,34 @@ Le journal complet est dans [`NOTES.md`](NOTES.md).
 
 ---
 
+## Tests
+
+```bash
+make test              # unitaires, avec détecteur de compétition
+make test-integration  # boîte noire sur la pile (docker compose up requis)
+make test-live         # contre la vraie API Vélib'
+```
+
+Trois niveaux, séparés par des marqueurs de build. Les deux derniers sont exclus
+du build par défaut : une suite qui rougit parce qu'un service tiers est en
+maintenance, ou parce que Docker n'est pas lancé, rend la CI mensongère.
+
+Les tests d'intégration couvrent ce que les unitaires ne peuvent pas atteindre :
+le cycle de vie complet d'une conversation jusqu'au 404 après suppression, la
+forme exacte du flux SSE telle qu'un navigateur la reçoit, et surtout
+**l'isolation entre utilisateurs** — un test vérifie que Bob ne voit ni ne lit
+les conversations d'Alice.
+
+**Sur la couverture, une précision honnête.** `internal/httpapi` affiche 2,7 %,
+et le chiffre est trompeur : ces tests interrogent le binaire conteneurisé par
+HTTP, donc Go ne peut pas les compter. Le compromis est délibéré — ils exercent
+le vrai routage, la vraie base et la vraie sérialisation, ce qu'un test en
+processus avec une fausse dépendance ne ferait pas. `internal/tools` (88 %) et
+`internal/velib` (64 %) portent la logique métier et sont testés en processus,
+là où le chiffre veut dire quelque chose.
+
+---
+
 ## Performance : ce que la mesure a dit
 
 Profilage d'abord. Les bancs sont dans `internal/velib/bench_test.go`, relançables

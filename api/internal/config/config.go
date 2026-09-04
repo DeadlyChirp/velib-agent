@@ -61,9 +61,23 @@ func Load() (Config, error) {
 		// l'API à n'importe quelle page ouverte dans le navigateur.
 		CORSOrigins: splitAndTrim(env("CORS_ORIGINS", "http://localhost:3000")),
 
-		ModelName:    env("MODEL_NAME", "gpt-4o-mini"),
-		ModelAPIKey:  env("OPENAI_API_KEY", ""),
-		ModelBaseURL: env("OPENAI_BASE_URL", ""),
+		ModelName:   env("MODEL_NAME", "gpt-4o-mini"),
+		ModelAPIKey: env("OPENAI_API_KEY", ""),
+		// ⚠️ Un défaut EXPLICITE, et non la chaîne vide.
+		//
+		// Le framework ne pose une URL par défaut que pour ses variantes
+		// nommées — DeepSeek, Qwen, MiniMax, Kimi. Pour OpenAI, si BaseURL est
+		// vide, aucune URL n'est posée, et son client HTTP maison remplace
+		// celui du SDK : le défaut du SDK ne s'applique donc pas non plus.
+		//
+		// Résultat : « Post "/chat/completions": unsupported protocol scheme "" ».
+		// Une URL relative, un message qui ne nomme pas ce qui manque, et la
+		// configuration par DÉFAUT du projet qui ne fonctionne pas. Invisible
+		// tant qu'on ne teste qu'avec un fournisseur tiers, qui renseigne
+		// toujours cette variable.
+		//
+		// Trouvé par le test d'intégration lancé avec la clé factice de la CI.
+		ModelBaseURL: env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 
 		ReasoningEffort: env("REASONING_EFFORT", ""),
 
@@ -116,14 +130,16 @@ func (c Config) Redacted() map[string]any {
 		key = "(trop courte pour être valide)"
 	}
 	return map[string]any{
-		"addr":            c.Addr,
-		"model":           c.ModelName,
-		"model_base_url":  orDefault(c.ModelBaseURL, "(défaut du fournisseur)"),
+		"addr":  c.Addr,
+		"model": c.ModelName,
+		// Plus de repli « (défaut du fournisseur) » : ce champ a maintenant un
+		// défaut explicite et n'est jamais vide.
+		"model_base_url":   c.ModelBaseURL,
 		"reasoning_effort": orDefault(c.ReasoningEffort, "(non envoyé)"),
-		"model_api_key":   key,
-		"postgres":        redactDSN(c.PostgresDSN),
-		"velib_cache_ttl": c.VelibCacheTTL.String(),
-		"cors_origins":    c.CORSOrigins,
+		"model_api_key":    key,
+		"postgres":         redactDSN(c.PostgresDSN),
+		"velib_cache_ttl":  c.VelibCacheTTL.String(),
+		"cors_origins":     c.CORSOrigins,
 	}
 }
 

@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make help` liste tout.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs test test-live cover fmt vet check reset
+.PHONY: help up down logs test test-live test-integration cover fmt vet check reset
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -24,6 +24,9 @@ test: ## Tests unitaires, avec détecteur de compétition
 
 test-live: ## Tests contre la vraie API Vélib (réseau requis)
 	cd api && go test -tags=live -count=1 -v ./internal/velib/
+
+test-integration: ## Tests en boîte noire sur la pile (docker compose up requis)
+	cd api && go test -tags=integration -count=1 -v ./internal/httpapi/
 
 cover: ## Couverture des tests
 	cd api && go test -coverprofile=cover.out ./internal/... && \
