@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -149,6 +150,41 @@ func TestIdentificationDuClient(t *testing.T) {
 			}
 			if got := clientDe(r); got != c.attendu {
 				t.Errorf("clientDe = %q, attendu %q", got, c.attendu)
+			}
+		})
+	}
+}
+
+// Trouvé par l'audit de comportements : un X-User-ID de 500 caractères
+// produisait un 500, parce que l'en-tête partait tel quel dans une colonne
+// varchar(255). Une entrée invalide doit produire un 400, jamais un 500 : l'un
+// dit à l'appelant de corriger, l'autre réveille une astreinte.
+func TestIdentiteInexploitableRefusee(t *testing.T) {
+	cas := []struct {
+		nom     string
+		valeur  string
+		accepte bool
+	}{
+		{"identité normale", "alice", true},
+		{"vide, donc défaut", "", true},
+		{"128 caractères", strings.Repeat("u", MaxUserIDLen), true},
+		{"129 caractères", strings.Repeat("u", MaxUserIDLen+1), false},
+		{"500 caractères", strings.Repeat("u", 500), false},
+		{"caractère de contrôle", "ali\x01ce", false},
+		{"retour chariot", "alice\r\nX-Injecte: 1", false},
+		{"accents acceptés", "élodie", true},
+		{"emoji accepté", "alice-🚲", true},
+	}
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/api/conversations", nil)
+			if c.valeur != "" {
+				r.Header["X-User-Id"] = []string{c.valeur}
+			}
+			_, ok := userIDChecked(r)
+			if ok != c.accepte {
+				t.Errorf("accepté = %v, attendu %v pour %q", ok, c.accepte,
+					c.valeur[:min(30, len(c.valeur))])
 			}
 		})
 	}

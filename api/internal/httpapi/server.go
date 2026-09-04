@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -50,7 +51,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/conversations/{id}/messages",
 		s.withRateLimit(http.HandlerFunc(s.handleSendMessage)))
 
-	return s.withCORS(s.withLogging(mux))
+	return s.withCORS(s.withLogging(s.withUserIDCheck(mux)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,11 +67,64 @@ func (s *Server) Routes() http.Handler {
 // tard ne demanderait que de remplir cet en-tête depuis un jeton vérifié.
 const defaultUserID = "demo"
 
-func userID(r *http.Request) string {
-	if v := strings.TrimSpace(r.Header.Get("X-User-ID")); v != "" {
-		return v
+// MaxUserIDLen borne l'identité applicative.
+//
+// ⚠️ TROUVÉ PAR L'AUDIT DE COMPORTEMENTS. L'en-tête partait tel quel jusqu'à la
+// base, et la table de sessions du framework déclare un varchar(255) : un
+// X-User-ID de 500 caractères produisait
+//
+//	create session failed: ERROR: value too long for type character varying(255)
+//
+// et l'utilisateur recevait un 500. Or ce n'est pas le serveur qui a un
+// problème, c'est l'entrée qui est invalide : la distinction compte, un 500
+// déclenche une astreinte, un 400 dit à l'appelant de corriger sa requête.
+//
+// 128 est confortable pour un identifiant applicatif ou un sujet de jeton, et
+// laisse de la marge sous la limite de la colonne.
+const MaxUserIDLen = 128
+
+// userID rend l'identité, et dit si l'en-tête fourni est acceptable.
+//
+// Les caractères de contrôle sont refusés : ils n'ont aucun usage légitime dans
+// un identifiant, et ils polluent les journaux où ils peuvent déplacer le
+// curseur ou masquer des lignes.
+func userIDChecked(r *http.Request) (string, bool) {
+	v := strings.TrimSpace(r.Header.Get("X-User-ID"))
+	if v == "" {
+		return defaultUserID, true
 	}
-	return defaultUserID
+	if len(v) > MaxUserIDLen {
+		return "", false
+	}
+	for _, c := range v {
+		if c < 0x20 || c == 0x7f {
+			return "", false
+		}
+	}
+	return v, true
+}
+
+func userID(r *http.Request) string {
+	v, ok := userIDChecked(r)
+	if !ok {
+		return defaultUserID
+	}
+	return v
+}
+
+// withUserIDCheck refuse une identité inexploitable avant qu'elle n'atteigne la
+// base. Placé en tête de chaîne : inutile de journaliser, de limiter le débit ou
+// de router une requête qui ne peut pas aboutir.
+func (s *Server) withUserIDCheck(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userIDChecked(r); !ok {
+			writeError(w, http.StatusBadRequest,
+				"en-tête X-User-ID invalide",
+				fmt.Sprintf("au plus %d caractères, sans caractère de contrôle", MaxUserIDLen))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

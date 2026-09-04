@@ -138,6 +138,10 @@ func TestEntreesInvalides(t *testing.T) {
 			"", http.StatusNotFound},
 		{"méthode non prévue", "PUT", "/api/conversations",
 			"", http.StatusMethodNotAllowed},
+		// Bornes trouvées par l'audit de comportements : chacune produisait un
+		// 500 ou passait silencieusement avant d'être fermée.
+		{"question trop longue", "POST", "/api/conversations/" + id + "/messages",
+			`{"message":"` + strings.Repeat("a", 3000) + `"}`, http.StatusBadRequest},
 	}
 	for _, c := range cas {
 		t.Run(c.nom, func(t *testing.T) {
@@ -149,6 +153,21 @@ func TestEntreesInvalides(t *testing.T) {
 				t.Errorf("une entrée invalide ne doit jamais produire un %d", st)
 			}
 		})
+	}
+}
+
+// Une identité applicative démesurée doit produire un 400 et non un 500.
+//
+// Trouvé par l'audit : l'en-tête partait tel quel dans une colonne varchar(255)
+// et la base refusait l'insertion. L'appelant recevait « erreur interne » pour
+// une requête que LUI pouvait corriger.
+func TestIdentiteDemesureeEstRefuseeProprement(t *testing.T) {
+	st, corps := appel(t, "GET", "/api/conversations", strings.Repeat("u", 500), "")
+	if st != http.StatusBadRequest {
+		t.Errorf("statut %d, attendu 400 — corps : %s", st, corps)
+	}
+	if st >= 500 {
+		t.Error("une entrée client invalide ne doit jamais réveiller une astreinte")
 	}
 }
 

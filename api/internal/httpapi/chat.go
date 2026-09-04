@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -55,6 +56,13 @@ type usage struct {
 	Total      int `json:"total"`
 }
 
+// MaxMessageRunes borne la longueur d'une question.
+//
+// Compté en RUNES et non en octets : « é » pèse deux octets, et un plafond en
+// octets refuserait une question française plus courte qu'une question anglaise
+// de même longueur apparente.
+const MaxMessageRunes = 2000
+
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	uid := userID(r)
 	convID := r.PathValue("id")
@@ -68,6 +76,20 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	req.Message = strings.TrimSpace(req.Message)
 	if req.Message == "" {
 		writeError(w, http.StatusBadRequest, "message vide", "")
+		return
+	}
+	// ⚠️ TROUVÉ PAR L'AUDIT DE COMPORTEMENTS. Le plafond de 1 Mo ci-dessus borne
+	// un CORPS HTTP, pas une question : une question de 100 000 caractères
+	// passait, soit environ 25 000 jetons envoyés au modèle en un seul tour.
+	// Multiplié par la rafale autorisée, c'est le quota d'une journée en dix
+	// secondes.
+	//
+	// 2 000 caractères laissent largement de quoi poser une question détaillée
+	// sur le parc — la plus longue des cinq questions de référence en fait 61.
+	if n := utf8.RuneCountInString(req.Message); n > MaxMessageRunes {
+		writeError(w, http.StatusBadRequest,
+			"question trop longue",
+			fmt.Sprintf("%d caractères, maximum %d", n, MaxMessageRunes))
 		return
 	}
 

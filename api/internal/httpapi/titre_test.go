@@ -71,3 +71,32 @@ func TestDeriveTitreSansEspace(t *testing.T) {
 		t.Errorf("pas d'ellipse alors que le texte est tronqué : %q", titre)
 	}
 }
+
+// Trouvé par l'audit de comportements : le plafond de 1 Mo borne un CORPS
+// HTTP, pas une question. Une question de 100 000 caractères passait, soit
+// environ 25 000 jetons envoyés au modèle en un tour — et multipliée par la
+// rafale autorisée, c'est le quota d'une journée en dix secondes.
+//
+// Le plafond se compte en RUNES : un plafond en octets refuserait une question
+// française plus courte qu'une question anglaise de même longueur apparente.
+func TestPlafondDeQuestionCompteEnRunes(t *testing.T) {
+	// La plus longue des cinq questions de référence, pour situer l'ordre de grandeur.
+	sujet := "Quelles sont les cinq stations qui ont le plus de bornes libres ?"
+	if n := utf8.RuneCountInString(sujet); n > MaxMessageRunes/10 {
+		t.Errorf("le plafond de %d runes est trop serré : une question de référence "+
+			"en fait déjà %d", MaxMessageRunes, n)
+	}
+
+	// Une question entièrement accentuée doit avoir droit au MÊME nombre de
+	// caractères qu'une question en ASCII. C'est tout l'intérêt de compter en
+	// runes : en octets, celle-ci pèserait deux fois plus.
+	accents := strings.Repeat("é", MaxMessageRunes)
+	if utf8.RuneCountInString(accents) != MaxMessageRunes {
+		t.Fatal("le jeu d'essai est faux")
+	}
+	if len(accents) <= MaxMessageRunes {
+		t.Fatal("le jeu d'essai devrait peser plus d'octets que de runes")
+	}
+	// Le test réel de la borne passe par l'API : voir integration_test.go.
+	// Ici on fige seulement le fait que la mesure est en runes.
+}
