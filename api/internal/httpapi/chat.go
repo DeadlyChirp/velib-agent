@@ -318,6 +318,26 @@ func messageUtilisateur(brut string) string {
 		return "Le quota du fournisseur de modèle est atteint. Réessayez dans une minute."
 	case strings.Contains(b, "401"), strings.Contains(b, "invalid_api_key"):
 		return "La clé d'API du modèle est refusée. Vérifiez OPENAI_API_KEY."
+	// 403 : le fournisseur a refusé la requête lui-même, typiquement son filtre
+	// anti-abus. Observé sur Gemini avec un faux message « SYSTEM: » et une
+	// demande d'export massif — deux tentatives que notre propre instruction
+	// refusait déjà. C'est une seconde ligne de défense, pas une panne, et
+	// l'utilisateur mérite de le savoir plutôt que de croire à un bug.
+	case strings.Contains(b, "403"), strings.Contains(b, "forbidden"),
+		strings.Contains(b, "blocked"), strings.Contains(b, "safety"):
+		return "Le fournisseur de modèle a refusé cette requête."
+	// 402 : la clé est VALIDE mais le compte n'a plus de crédit. Rencontré sur
+	// Cerebras. Distinguer du 401 évite de faire chercher une erreur de clé là
+	// où il n'y en a pas.
+	case strings.Contains(b, "402"), strings.Contains(b, "payment required"),
+		strings.Contains(b, "insufficient"):
+		return "Le compte du fournisseur de modèle n'a plus de crédit."
+	// 404 sur l'appel lui-même : le nom de modèle n'existe pas chez ce
+	// fournisseur. Rencontré en passant de Groq à Gemini, où gemini-2.5-flash
+	// avait été retiré aux nouveaux comptes.
+	case strings.Contains(b, "404"), strings.Contains(b, "not_found"),
+		strings.Contains(b, "no longer available"):
+		return "Le modèle demandé n'existe pas chez ce fournisseur. Vérifiez MODEL_NAME."
 	case strings.Contains(b, "context deadline exceeded"), strings.Contains(b, "timeout"):
 		return "Le modèle n'a pas répondu à temps. Réessayez."
 	default:

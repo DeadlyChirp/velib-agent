@@ -46,3 +46,27 @@ func TestMessageUtilisateurNeFuitPas(t *testing.T) {
 		}
 	}
 }
+
+// Deux cas rencontrés en changeant de fournisseur, chacun renvoyait le message
+// générique alors qu'il est parfaitement diagnosticable.
+func TestMessageUtilisateurDistingueCleEtCredit(t *testing.T) {
+	cas := []struct{ nom, brut, attendu string }{
+		{"crédit épuisé (Cerebras)",
+			`POST "https://api.cerebras.ai/v1/chat/completions": 402 Payment Required`,
+			"Le compte du fournisseur de modèle n'a plus de crédit."},
+		{"refusé par le fournisseur (Gemini)",
+			`POST "https://generativelanguage.googleapis.com/...": 403 Forbidden`,
+			"Le fournisseur de modèle a refusé cette requête."},
+		{"modèle inexistant (Gemini)",
+			`POST "https://generativelanguage.googleapis.com/...": 404 Not Found ` +
+				`{"message":"This model is no longer available to new users"}`,
+			"Le modèle demandé n'existe pas chez ce fournisseur. Vérifiez MODEL_NAME."},
+	}
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			if got := messageUtilisateur(c.brut); got != c.attendu {
+				t.Errorf("= %q\n  veut %q", got, c.attendu)
+			}
+		})
+	}
+}
