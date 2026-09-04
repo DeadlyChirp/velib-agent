@@ -232,13 +232,21 @@ func titleOf(sess *session.Session) string {
 func deriveTitle(question string) string {
 	t := strings.Join(strings.Fields(question), " ")
 	const max = 60
-	if len(t) <= max {
+
+	// ⚠️ Découpe en RUNES et non en octets. « len » compte des octets : couper à
+	// l'octet 60 au milieu d'un caractère accentué produit une séquence UTF-8
+	// invalide, que l'encodeur JSON rend en « � » — définitivement, puisque le
+	// titre est persisté tel quel.
+	r := []rune(t)
+	if len(r) <= max {
 		return t
 	}
-	// Coupe sur le dernier espace pour ne pas trancher un mot en deux.
-	cut := strings.LastIndex(t[:max], " ")
-	if cut < 20 {
-		cut = max
+	cut := max
+	for i := max - 1; i >= 20; i-- {
+		if r[i] == ' ' {
+			cut = i
+			break
+		}
 	}
-	return t[:cut] + "…"
+	return strings.TrimRight(string(r[:cut]), " ") + "…"
 }

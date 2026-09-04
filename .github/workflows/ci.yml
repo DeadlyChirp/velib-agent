@@ -11,8 +11,12 @@ name: CI
 # n'apprend plus rien à personne. Ils sont lancés à la main avant le rendu.
 
 on:
+  # Les deux noms de branche : le dépôt est sur master, mais un clone poussé
+  # ailleurs peut être sur main. Ne déclencher que sur l'un des deux ferait une
+  # CI silencieuse, c'est-à-dire pire qu'une CI absente — on croirait qu'elle
+  # passe alors qu'elle ne tourne pas.
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
   workflow_dispatch:
 
@@ -71,6 +75,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Construction des images
+        env:
+          # docker-compose.yml utilise l'opérateur :? sur OPENAI_API_KEY, qui
+          # fait échouer TOUTE commande compose — y compris `build` — quand la
+          # variable est absente. Sans cette ligne le job échouait dès le
+          # premier pas, avant même de construire quoi que ce soit.
+          OPENAI_API_KEY: ci-dummy-key
         run: docker compose build
 
       - name: La pile démarre et répond

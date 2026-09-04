@@ -106,12 +106,66 @@ func TestLiveTrapsStillHold(t *testing.T) {
 	t.Logf("PIÈGE remontée > 1 h        : %d stations, la plus vieille à %.1f h",
 		staleOverHour, float64(oldest)/3600)
 
-	// Le garde-fou doit tenir sur les vraies stations à capacité nulle.
-	for _, s := range snap.Stations {
-		if s.Capacity == 0 {
-			if _, ok := s.OccupancyRate(); ok {
-				t.Errorf("%s : capacité nulle mais taux déclaré exploitable", s.Name)
+	// Le garde-fou réel : aucune agrégation ne divise par Capacity ni ne déduit
+	// les bornes libres par soustraction. On le vérifie sur le parc entier.
+	for _, m := range ValidMetrics {
+		r := Rank(snap, m, MaxRankLimit, false, now)
+		for _, st := range r.Stations {
+			if st.DocksAvailable < 0 || st.BikesAvailable < 0 {
+				t.Errorf("%s : valeur négative issue d'un calcul (%d bornes, %d vélos)",
+					st.Name, st.DocksAvailable, st.BikesAvailable)
 			}
+		}
+	}
+}
+
+// LE TEST DU DÉFAUT CRITIQUE, contre les vraies données.
+//
+// Avant correction, le top 5 par bornes libres remontait trois stations hors
+// service — 200, 200 et 97 bornes annoncées par des endroits qui ne reprennent
+// aucun vélo, dont un muet depuis 295 jours. C'était la réponse à la question 3
+// de référence, fausse et assurée.
+func TestLiveRankNeverReturnsOutOfServiceStations(t *testing.T) {
+	snap := liveSnapshot(t)
+	now := time.Now()
+
+	for _, m := range []Metric{MetricDocksAvailable, MetricBikesAvailable, MetricEbikes} {
+		r := Rank(snap, m, MaxRankLimit, false, now)
+		for i, st := range r.Stations {
+			if st.OutOfService {
+				t.Errorf("%s : station hors service en position %d du classement — %s "+
+					"(%d bornes libres, mais elle ne reprend aucun vélo)",
+					m, i+1, st.Name, st.DocksAvailable)
+			}
+		}
+	}
+
+	// Combien de stations le filtre écarte-t-il vraiment aujourd'hui ?
+	r := Rank(snap, MetricDocksAvailable, 5, false, now)
+	t.Logf("note transmise au modèle : %s", r.Note)
+	for i, st := range r.Stations {
+		t.Logf("  %d. %3d bornes libres — %s", i+1, st.DocksAvailable, st.Name)
+	}
+}
+
+// Sur le parc réel, une requête large correspond à des dizaines de stations.
+// Le modèle doit connaître le total, pas seulement les trois montrées.
+func TestLiveBroadSearchReportsRealTotal(t *testing.T) {
+	snap := liveSnapshot(t)
+	now := time.Now()
+
+	for _, q := range []string{"place", "gare", "mairie"} {
+		d := FindStations(snap, q, now)
+		t.Logf("« %s » : %d correspondances réelles, %d montrées, tronqué=%v",
+			q, d.TotalMatches, d.MatchCount, d.Truncated)
+
+		if d.TotalMatches > MaxCandidates && !d.Truncated {
+			t.Errorf("« %s » : %d correspondances mais troncature non signalée",
+				q, d.TotalMatches)
+		}
+		if d.MatchCount > MaxCandidates {
+			t.Errorf("« %s » : %d stations renvoyées, borne de %d non appliquée",
+				q, d.MatchCount, MaxCandidates)
 		}
 	}
 }

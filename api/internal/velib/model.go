@@ -78,12 +78,19 @@ func (r rawStatus) bikeTypes() (mechanical, ebike int) {
 // des deux fichiers : « combien de vélos à Benjamin Godard » a besoin du nom
 // (référentiel) ET du compte (état).
 type Station struct {
-	ID       int64   `json:"id"`
-	Code     string  `json:"code"`
-	Name     string  `json:"name"`
-	Lat      float64 `json:"lat"`
-	Lon      float64 `json:"lon"`
-	Capacity int     `json:"capacity"`
+	ID   int64   `json:"id"`
+	Code string  `json:"code"`
+	Name string  `json:"name"`
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+	// Capacity est la taille physique de la station.
+	//
+	// ⚠️ 4 stations du parc réel ont capacity = 0 (mesuré le 04/09). Aucun calcul
+	// de ce paquet ne divise par ce champ, et les bornes libres sont LUES dans
+	// num_docks_available plutôt que déduites par soustraction : 15 stations ont
+	// bikes + docks > capacity, ce qui est physiquement impossible et rendrait
+	// toute soustraction négative.
+	Capacity int `json:"capacity"`
 
 	BikesAvailable int `json:"bikes_available"`
 	Mechanical     int `json:"mechanical"`
@@ -127,20 +134,6 @@ func (s Station) IsEmpty() bool { return s.BikesAvailable == 0 }
 
 // IsFull : plus aucune borne libre pour rendre un vélo.
 func (s Station) IsFull() bool { return s.DocksAvailable == 0 }
-
-// OccupancyRate renvoie le taux de remplissage en pourcentage, et un booléen
-// indiquant si la valeur est exploitable.
-//
-// ⚠️ PIÈGE VÉRIFIÉ : 3 stations ont capacity = 0 (Verdun - Place Henri IV,
-// Hôtel de Ville d'Argenteuil, Coysevox - Lamarck). Sans ce garde-fou, tout
-// calcul de taux renvoie +Inf ou panique. On refuse de produire un chiffre
-// plutôt que d'en produire un faux.
-func (s Station) OccupancyRate() (float64, bool) {
-	if s.Capacity <= 0 {
-		return 0, false
-	}
-	return float64(s.BikesAvailable) / float64(s.Capacity) * 100, true
-}
 
 // AgeSeconds est l'ancienneté de la remontée de cette station.
 func (s Station) AgeSeconds(now time.Time) int64 {

@@ -88,6 +88,33 @@ puisse la citer plutôt que d'énoncer un pourcentage sans contexte.
 
 Un chiffre sans sa définition est indéfendable devant un client.
 
+### 3 bis. Les classements excluent les stations hors service
+
+C'est la correction la plus importante du projet, et elle vient d'une relecture
+adverse plutôt que de mon premier jet.
+
+Une station hors service annonce souvent **beaucoup** de bornes libres —
+précisément parce qu'elle ne reprend plus de vélo. Sans filtre, le top 5 par
+bornes libres remontait, mesuré le 04/09 :
+
+| | Station | Bornes libres | État |
+|---|---|---|---|
+| 1 | Station Tour de France | 200 | **hors service**, donnée de 955 h |
+| 2 | Championnats d'Europe de Natation | 200 | **hors service**, 449 h |
+| 3 | Hippodrome de Paris Vincennes | 97 | **hors service**, 295 jours |
+
+La réponse à la question 3 de référence était donc fausse, et fausse avec assurance :
+trois endroits où l'on ne peut rendre aucun vélo, présentés comme les meilleurs.
+
+`Rank` filtre désormais les stations hors service pour les métriques de service,
+et **le dit au modèle** (`22 stations hors service exclues du classement`). Le
+filtre ne s'applique pas à `capacity`, qui décrit la taille physique : la plus
+grande station reste la plus grande même fermée.
+
+Le classement signale aussi les **ex aequo**. Sur « les stations avec le moins de
+vélos », des dizaines sont à zéro : sans ce signal, le modèle présenterait vingt
+noms départagés à l'alphabet comme s'il s'agissait d'un palmarès.
+
 ### 4. La recherche renvoie des candidats, jamais « la » station
 
 Mesuré sur le parc réel : **532 stations sur 1 519 portent des accents**, trois
@@ -98,6 +125,12 @@ nom exact — le nom réel est « Benjamin Godard - Victor Hugo ».
 La recherche normalise donc la casse et les accents, et renvoie jusqu'à trois
 candidats avec un indicateur `ambiguous`. Choisir arbitrairement, c'est répondre
 faux avec assurance.
+
+Elle renvoie aussi **`total_matches`**, le nombre réel de correspondances, distinct
+du nombre montré. Mesuré : « place » correspond à **186 stations**, « gare » à 67,
+« mairie » à 31. Sans ce compteur, le modèle croirait qu'il en existe trois et
+annoncerait un résultat complet alors que la station visée peut être absente de
+la liste.
 
 ### 5. Le cache sert la donnée périmée plutôt qu'une erreur
 
@@ -127,8 +160,11 @@ approximative.
 
 Trois anomalies mesurées sur le parc réel, dont deux font planter du code naïf :
 
-- **4 stations ont `capacity = 0`.** `OccupancyRate()` renvoie
-  `(float64, bool)` et refuse de produire un chiffre plutôt que `+Inf`.
+- **4 stations ont `capacity = 0`.** Aucun calcul ne divise par ce champ. J'avais
+  d'abord écrit une méthode `OccupancyRate()` protégée contre la division par
+  zéro — un audit du code a montré qu'elle n'était **appelée nulle part**. Du
+  code mort avec des tests et une place dans cette documentation : je l'ai
+  retirée, et la protection réelle est celle du point suivant.
 - **15 stations ont `bikes + docks > capacity`**, physiquement impossible. Les
   bornes libres sont donc **lues** dans `num_docks_available`, jamais calculées
   par soustraction.
@@ -167,6 +203,29 @@ fichier statique. Ce qui est fait sérieusement quand même : streaming token pa
 token, affichage des appels d'outils en cours, gestion des erreurs, navigation
 au clavier, et `textContent` partout — jamais `innerHTML`, puisque le contenu
 vient d'un modèle.
+
+---
+
+---
+
+## Ce qu'une relecture adverse a changé
+
+Le code a été relu par cinq angles séparés — sécurité, architecture Go,
+fiabilité, conception d'agent, et une lecture « jury » —, puis chaque constat a
+été contre-interrogé pour éliminer les faux positifs. Ce qui en est sorti :
+
+| Constat | Correction |
+|---|---|
+| **`Rank` ignorait `OutOfService`** : le top 3 de la question 3 était intégralement composé de stations fermées | filtre + signalement au modèle, deux tests dont un sur données réelles |
+| Les descriptions de schéma étaient **coupées à la première virgule** par le générateur de tags : le modèle ne voyait ni le plafond de 20, ni le sens de `ascending=false` | descriptions réécrites sans virgule, schéma vérifié en le sérialisant |
+| `find_station` comptait les résultats **renvoyés**, pas les correspondances réelles | ajout de `total_matches` et `truncated` |
+| `network_summary` exposait un paramètre fantôme `unused` | struct vide — le générateur l'accepte, contrairement à ce que je croyais |
+| `OccupancyRate()` était du **code mort** loué dans ce README | retiré, la vraie protection documentée à sa place |
+| `TurnRecord.DataStale` était déclaré mais **jamais renseigné** | renseigné depuis les retours d'outils |
+| `deriveTitle` coupait à l'octet 60, cassant un caractère accentué | découpe en runes |
+| `CORS_ORIGINS` valait `*` par défaut, sans justification | défaut restreint à l'origine du front |
+
+Le journal complet est dans [`NOTES.md`](NOTES.md).
 
 ---
 

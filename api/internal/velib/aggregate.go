@@ -1,6 +1,7 @@
 package velib
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -211,7 +212,7 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 	}
 
 	if !m.valid() {
-		res.Note = "métrique inconnue, aucun classement produit"
+		res.addNote("métrique inconnue, aucun classement produit")
 		return res
 	}
 	if limit <= 0 {
@@ -219,14 +220,29 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 	}
 	if limit > MaxRankLimit {
 		limit = MaxRankLimit
-		res.Note = "limite ramenée à 20, borne appliquée côté serveur"
+		res.addNote("limite ramenée à 20 par le serveur")
 	}
 
-	// On classe sur une copie des index : trier la tranche du snapshot
-	// modifierait un état partagé entre requêtes concurrentes.
-	idx := make([]int, len(s.Stations))
-	for i := range idx {
-		idx[i] = i
+	// ⚠️ CORRECTION D'UN DÉFAUT MESURÉ. Une station hors service annonce souvent
+	// beaucoup de bornes libres, précisément parce qu'elle ne reprend plus de
+	// vélo. Sans ce filtre, le top 5 par bornes libres remontait sur les données
+	// réelles du 04/09 trois stations où l'on ne peut RIEN rendre : « Station
+	// Tour de France » (200 bornes, donnée de 955 h), « Championnats d'Europe de
+	// Natation » (200 bornes, 449 h) et « Hippodrome de Vincennes » (97 bornes,
+	// 295 jours). La réponse à la question 3 de référence était donc fausse, et
+	// fausse avec assurance.
+	//
+	// Le filtre ne s'applique PAS à capacity : cette métrique décrit la taille
+	// physique de la station et non le service qu'elle rend. « Quelle est la plus
+	// grande station » garde une réponse même si elle est fermée aujourd'hui.
+	excluded := 0
+	idx := make([]int, 0, len(s.Stations))
+	for i, st := range s.Stations {
+		if m != MetricCapacity && st.OutOfService() {
+			excluded++
+			continue
+		}
+		idx = append(idx, i)
 	}
 	sort.SliceStable(idx, func(a, b int) bool {
 		va := m.value(s.Stations[idx[a]])
@@ -247,7 +263,44 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 	for _, i := range idx[:limit] {
 		res.Stations = append(res.Stations, brief(s.Stations[i], now))
 	}
+
+	if excluded > 0 {
+		res.addNote(fmt.Sprintf("%d stations hors service exclues du classement "+
+			"car elles ne rendent pas le service mesuré", excluded))
+	}
+
+	// Les ex aequo sont départagés par ordre alphabétique, ce qui est arbitraire.
+	// Sur « les stations avec le moins de vélos », des dizaines sont à zéro : le
+	// modèle doit savoir qu'il regarde un échantillon d'ex aequo et non un
+	// palmarès, sinon il présente vingt noms comme LE classement.
+	if len(res.Stations) > 0 && limit < len(idx) {
+		last := m.value(s.Stations[idx[limit-1]])
+		ties := 0
+		for _, i := range idx[limit:] {
+			if m.value(s.Stations[i]) == last {
+				ties++
+			}
+		}
+		if ties > 0 {
+			res.addNote(fmt.Sprintf("%d autres stations ont la même valeur que la "+
+				"dernière du classement, le départage est alphabétique donc "+
+				"arbitraire", ties))
+		}
+	}
 	return res
+}
+
+// addNote empile un message sans écraser le précédent.
+//
+// Note est un champ unique qui portait déjà « métrique inconnue » et « limite
+// ramenée à 20 ». Une affectation directe aurait fait disparaître le signal de
+// bridage au profit du dernier message écrit.
+func (r *RankResult) addNote(msg string) {
+	if r.Note == "" {
+		r.Note = msg
+		return
+	}
+	r.Note += ". " + msg
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,19 +403,41 @@ func Count(s Snapshot, f Filter, sampleSize int, now time.Time) CountResult {
 
 // StationDetail est le retour de la recherche par nom.
 type StationDetail struct {
-	Query      string         `json:"query"`
-	MatchCount int            `json:"match_count"`
-	Stations   []StationBrief `json:"stations"`
-	Ambiguous  bool           `json:"ambiguous"`
-	Note       string         `json:"note,omitempty"`
-	Freshness  Freshness      `json:"freshness"`
+	Query string `json:"query"`
+
+	// MatchCount est le nombre de stations RENVOYÉES, borné à MaxCandidates.
+	MatchCount int `json:"match_count"`
+
+	// TotalMatches est le nombre RÉEL de correspondances dans le parc.
+	//
+	// ⚠️ Les deux champs sont distincts à dessein. Une requête large comme
+	// « place » ou « gare » correspond à des dizaines de stations : sans ce
+	// compteur, le modèle croirait qu'il en existe trois et annoncerait un
+	// résultat complet alors que la station visée peut être absente de la liste.
+	TotalMatches int `json:"total_matches"`
+
+	Stations  []StationBrief `json:"stations"`
+	Ambiguous bool           `json:"ambiguous"`
+	Truncated bool           `json:"truncated"`
+	Note      string         `json:"note,omitempty"`
+	Freshness Freshness      `json:"freshness"`
 }
+
+// MaxCandidates borne le nombre de stations renvoyées par une recherche.
+const MaxCandidates = 3
 
 // FindStations cherche par nom et renvoie les candidats.
 func FindStations(s Snapshot, query string, now time.Time) StationDetail {
 	res := StationDetail{Query: query, Freshness: freshnessOf(s, now)}
 
-	matches := Search(s.Stations, query, 3)
+	all := Search(s.Stations, query, 0)
+	res.TotalMatches = len(all)
+
+	matches := all
+	if len(matches) > MaxCandidates {
+		matches = matches[:MaxCandidates]
+		res.Truncated = true
+	}
 	res.MatchCount = len(matches)
 	for _, m := range matches {
 		res.Stations = append(res.Stations, brief(m.Station, now))
@@ -376,6 +451,13 @@ func FindStations(s Snapshot, query string, now time.Time) StationDetail {
 		res.Ambiguous = true
 		res.Note = "plusieurs stations correspondent, demander laquelle plutôt " +
 			"que d'en choisir une"
+	}
+
+	if res.Truncated {
+		res.Note = fmt.Sprintf("%d stations correspondent au total, seules les %d "+
+			"premières sont montrées. Si la station cherchée n'y est pas, demander "+
+			"un nom plus précis plutôt que de choisir dans cette liste",
+			res.TotalMatches, res.MatchCount)
 	}
 	return res
 }

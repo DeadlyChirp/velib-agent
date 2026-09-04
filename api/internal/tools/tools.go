@@ -106,11 +106,14 @@ type ToolError struct {
 // Outil 1 — vue d'ensemble du parc
 // ─────────────────────────────────────────────────────────────────────────────
 
-type summaryInput struct {
-	// Aucun paramètre. Le champ existe uniquement parce que le générateur de
-	// schéma a besoin d'une struct ; il est ignoré.
-	Unused string `json:"unused,omitempty" jsonschema:"description=ne pas renseigner"`
-}
+// summaryInput est vide : l'outil ne prend aucun paramètre.
+//
+// ⚠️ La version précédente portait un champ « unused » documenté « ne pas
+// renseigner », uniquement parce que je croyais le générateur incapable de
+// traiter une struct vide. Vérifié : il le fait. Le modèle recevait donc à
+// chaque tour un paramètre fantôme, c'est-à-dire une occasion d'inventer une
+// valeur pour rien.
+type summaryInput struct{}
 
 type summaryOutput struct {
 	*velib.NetworkSummary
@@ -177,7 +180,11 @@ func (r *Registry) findStation() tool.Tool {
 				"portent des noms proches ou identiques — « gare de lyon » correspond à "+
 				"trois stations distinctes. Si le champ ambiguous vaut true, DEMANDER à "+
 				"l'utilisateur laquelle il vise au lieu d'en choisir une. "+
-				"Si match_count vaut 0, la station n'existe pas dans le parc : le dire "+
+				"Comparer match_count (stations montrées) et total_matches (nombre réel "+
+				"de correspondances) : si truncated vaut true, dire combien il y en a au "+
+				"total et demander un nom plus précis, car la station visée peut être "+
+				"absente de la liste montrée. "+
+				"Si total_matches vaut 0, la station n'existe pas dans le parc : le dire "+
 				"et proposer une reformulation, ne jamais inventer de chiffres."),
 	)
 }
@@ -187,9 +194,13 @@ func (r *Registry) findStation() tool.Tool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type rankInput struct {
+	// ⚠️ AUCUNE VIRGULE dans les descriptions. Le générateur de schéma découpe
+	// les tags jsonschema sur la virgule : tout ce qui suit devient une directive
+	// inconnue et disparaît silencieusement. Vérifié en dumpant le schéma réel —
+	// le modèle ne voyait ni le plafond de 20 ni le sens de ascending=false.
 	Metric    string `json:"metric" jsonschema:"description=Critère de classement,enum=docks_available,enum=bikes_available,enum=ebikes,enum=capacity,required"`
-	Limit     int    `json:"limit" jsonschema:"description=Nombre de stations à renvoyer. Défaut 5, maximum 20 imposé par le serveur"`
-	Ascending bool   `json:"ascending" jsonschema:"description=true pour un classement croissant (les plus petites valeurs), false ou absent pour décroissant (les plus grandes)"`
+	Limit     int    `json:"limit" jsonschema:"description=Nombre de stations à renvoyer. Défaut 5 et maximum 20 — le serveur ramène toute valeur supérieure à 20"`
+	Ascending bool   `json:"ascending" jsonschema:"description=Mettre true pour les plus PETITES valeurs (classement croissant). Mettre false ou omettre pour les plus GRANDES valeurs (classement décroissant) — c'est le cas usuel"`
 }
 
 type rankOutput struct {
@@ -218,9 +229,15 @@ func (r *Registry) rankStations() tool.Tool {
 				"Critères disponibles : docks_available (bornes libres pour rendre un "+
 				"vélo), bikes_available (vélos à prendre), ebikes (vélos électriques), "+
 				"capacity (taille de la station). "+
+				"Les stations hors service sont EXCLUES des classements par vélos ou par "+
+				"bornes, car une station fermée annonce souvent beaucoup de bornes libres "+
+				"sans pouvoir reprendre un vélo. Elles restent incluses pour le critère "+
+				"capacity qui décrit la taille physique. "+
 				"Le serveur borne la réponse à 20 stations maximum quelle que soit la "+
-				"valeur demandée. Ne pas utiliser cet outil pour obtenir la liste "+
-				"complète du parc : elle n'est pas disponible, et c'est volontaire."),
+				"valeur demandée. Lire le champ note : il signale les exclusions et les "+
+				"ex aequo départagés arbitrairement. "+
+				"Ne pas utiliser cet outil pour obtenir la liste complète du parc : elle "+
+				"n'est pas disponible, et c'est volontaire."),
 	)
 }
 
@@ -230,7 +247,7 @@ func (r *Registry) rankStations() tool.Tool {
 
 type countInput struct {
 	Filter     string `json:"filter" jsonschema:"description=Critère de sélection des stations,enum=empty,enum=full,enum=out_of_service,enum=has_ebikes,required"`
-	SampleSize int    `json:"sample_size" jsonschema:"description=Nombre d'exemples à joindre au total. Défaut 5, maximum 10 imposé par le serveur"`
+	SampleSize int    `json:"sample_size" jsonschema:"description=Nombre d'exemples à joindre au total exact. Défaut 5 et maximum 10 — le serveur ramène toute valeur supérieure à 10"`
 }
 
 type countOutput struct {
@@ -283,7 +300,8 @@ Règles de travail :
 - Tu ne connais RIEN du parc par toi-même. Toute donnée chiffrée doit venir d'un appel d'outil, jamais de ta mémoire.
 - Pour une question sur l'ensemble du réseau, un seul appel à network_summary suffit. N'enchaîne pas plusieurs outils quand un seul répond.
 - Quand find_station renvoie ambiguous=true, demande à l'utilisateur laquelle des stations il vise. Ne choisis pas à sa place.
-- Quand count_stations renvoie truncated=true, annonce le total exact et précise que tu ne montres que quelques exemples.
+- Quand count_stations ou find_station renvoient truncated=true, annonce le total exact et précise que tu ne montres que quelques exemples.
+- Quand un résultat porte un champ note, lis-le et tiens-en compte : il signale les stations exclues, les listes tronquées et les ex aequo départagés arbitrairement.
 - La liste complète des stations n'est pas accessible, par conception. Si on te la demande, explique-le et propose un comptage ou un classement.
 - Quand une réponse porte un bloc freshness avec stale=true, ou qu'une station porte data_age_seconds, dis-le. Une donnée datée annoncée comme telle est utile ; une donnée datée présentée comme fraîche est un mensonge.
 - Si un outil renvoie un champ error, explique la situation à l'utilisateur et n'invente aucun chiffre.

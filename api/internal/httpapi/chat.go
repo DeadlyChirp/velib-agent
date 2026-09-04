@@ -156,6 +156,11 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 	var full strings.Builder
 	var toolCalls []string
 	var tokens *usage
+	// dataStale retient si un outil a servi une donnée périmée pendant ce tour.
+	// Sans ça, le champ du même nom valait toujours false dans le tracker, y
+	// compris pendant une panne de la source — exactement le cas qu'il existe
+	// pour rendre visible.
+	dataStale := false
 
 	for ev := range events {
 		// Le client a fermé l'onglet. On sort de la boucle sans paniquer : le
@@ -204,6 +209,12 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 				send(sseEvent{Type: "tool", Tool: tc.Function.Name})
 			}
 
+			// Un message d'outil qui porte "stale":true signale que le cache a
+			// servi une donnée datée faute de source joignable.
+			if ch.Message.ToolID != "" && strings.Contains(ch.Message.Content, `"stale":true`) {
+				dataStale = true
+			}
+
 			// Fragment de texte.
 			if d := ch.Delta.Content; d != "" {
 				full.WriteString(d)
@@ -224,6 +235,7 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 		Tools:          toolCalls,
 		AnswerChars:    len(answer),
 		Status:         "ok",
+		DataStale:      dataStale,
 	}
 	if strings.TrimSpace(answer) == "" {
 		rec.Status = "empty"

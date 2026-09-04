@@ -74,9 +74,9 @@ func Search(stations []Station, query string, limit int) []Match {
 	if q == "" {
 		return nil
 	}
-	if limit <= 0 {
-		limit = 3
-	}
+	// limit <= 0 signifie « aucune borne » : c'est FindStations qui décide
+	// combien de candidats exposer, après avoir compté le total réel.
+	unbounded := limit <= 0
 
 	var matches []Match
 	for _, s := range stations {
@@ -96,7 +96,7 @@ func Search(stations []Station, query string, limit int) []Match {
 		return matches[i].Station.Name < matches[j].Station.Name
 	})
 
-	if len(matches) > limit {
+	if !unbounded && len(matches) > limit {
 		matches = matches[:limit]
 	}
 	return matches

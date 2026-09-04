@@ -28,8 +28,11 @@ services:
       start_period: 5s
     restart: unless-stopped
     # Port exposé pour pouvoir inspecter la base pendant la revue de code.
+    # Configurable : un PostgreSQL déjà installé sur la machine occupe 5432 et
+    # ferait échouer `docker compose up` sur « port is already allocated »,
+    # sans qu'aucun des trois services ne démarre.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
 
   api:
     build:
@@ -53,7 +56,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/usr/local/bin/api", "-healthcheck"]
@@ -68,7 +71,7 @@ services:
     depends_on:
       - api
     ports:
-      - "3000:80"
+      - "${WEB_PORT:-3000}:80"
     restart: unless-stopped
 
 volumes:

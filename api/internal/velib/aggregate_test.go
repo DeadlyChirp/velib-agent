@@ -275,22 +275,54 @@ func TestCountOutOfService(t *testing.T) {
 // Les pièges des données réelles
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 3 stations du parc réel ont capacity = 0. Sans garde-fou, +Inf ou panique.
-func TestOccupancyRateZeroCapacity(t *testing.T) {
-	s := Station{Capacity: 0, BikesAvailable: 0}
+// 4 stations du parc réel ont capacity = 0 (mesuré le 04/09).
+//
+// La première version portait une méthode OccupancyRate() protégée contre la
+// division par zéro. L'audit a montré qu'elle n'était appelée NULLE PART : du
+// code mort, avec des tests et une place d'honneur dans le README. Elle a été
+// retirée, et la vraie protection est vérifiée ici — aucune agrégation ne
+// divise par Capacity, ni ne déduit les bornes libres par soustraction.
+func TestNoAggregationDividesByCapacity(t *testing.T) {
+	snap := fixture()
 
-	rate, ok := s.OccupancyRate()
-	if ok {
-		t.Errorf("capacité nulle : le taux ne doit pas être exploitable, obtenu %v", rate)
+	// La fixture contient « Coysevox - Lamarck » avec capacity = 0, comme le
+	// parc réel. Toutes les agrégations doivent produire des nombres finis.
+	sum := Summarize(snap, refTime)
+	if sum.StationsTotal == 0 {
+		t.Fatal("fixture vide")
+	}
+	if sum.OutOfServicePct < 0 || sum.OutOfServicePct > 100 {
+		t.Errorf("pourcentage aberrant : %v", sum.OutOfServicePct)
+	}
+
+	for _, m := range ValidMetrics {
+		r := Rank(snap, m, 10, false, refTime)
+		for _, st := range r.Stations {
+			// Les bornes libres sont LUES, jamais calculées : 15 stations réelles
+			// ont bikes + docks > capacity, ce qui rendrait toute soustraction
+			// négative.
+			if st.DocksAvailable < 0 {
+				t.Errorf("%s : %d bornes libres, valeur négative issue d'un calcul",
+					st.Name, st.DocksAvailable)
+			}
+		}
+	}
+
+	for _, f := range ValidFilters {
+		c := Count(snap, f, 5, refTime)
+		if c.Pct < 0 || c.Pct > 100 {
+			t.Errorf("filtre %s : pourcentage aberrant %v", f, c.Pct)
+		}
 	}
 }
 
-func TestOccupancyRateNormal(t *testing.T) {
-	s := Station{Capacity: 20, BikesAvailable: 5}
+// Une station à capacité nulle ne doit pas disparaître du parc pour autant :
+// elle compte dans les totaux et peut être trouvée par son nom.
+func TestZeroCapacityStationRemainsVisible(t *testing.T) {
+	got := FindStations(fixture(), "Coysevox", refTime)
 
-	rate, ok := s.OccupancyRate()
-	if !ok || rate != 25 {
-		t.Errorf("taux = %v (exploitable=%v), attendu 25", rate, ok)
+	if got.TotalMatches == 0 {
+		t.Error("la station à capacité nulle a disparu de la recherche")
 	}
 }
 

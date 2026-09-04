@@ -42,8 +42,14 @@ type Config struct {
 // Load lit l'environnement et valide.
 func Load() (Config, error) {
 	c := Config{
-		Addr:        env("API_ADDR", ":8080"),
-		CORSOrigins: splitAndTrim(env("CORS_ORIGINS", "*")),
+		Addr: env("API_ADDR", ":8080"),
+
+		// Défaut restrictif plutôt que « * ». Par le chemin nominal — docker
+		// compose puis localhost:3000 — le front appelle /api en relatif sur
+		// nginx, même origine, et l'en-tête n'est jamais évalué. Un « * » par
+		// défaut n'aurait donc rien débloqué pour l'usage prévu, tout en ouvrant
+		// l'API à n'importe quelle page ouverte dans le navigateur.
+		CORSOrigins: splitAndTrim(env("CORS_ORIGINS", "http://localhost:3000")),
 
 		ModelName:    env("MODEL_NAME", "gpt-4o-mini"),
 		ModelAPIKey:  env("OPENAI_API_KEY", ""),
