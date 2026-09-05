@@ -167,3 +167,99 @@ exemple utilisable en soutenance.)*
 - **Le géocodage et la météo** (extensions optionnelles) — écartés. Aucune des cinq
   questions n'en a besoin, et la spécification dit lui-même que trois choses qui
   tiennent debout valent mieux que dix à moitié branchées.
+
+---
+
+## 5. Ce qu'un second passage a trouvé
+
+Le projet marchait à la fin de la section 4. Tout ce qui suit a été trouvé
+**après**, en cherchant activement à le casser plutôt qu'à le finir.
+
+### Changer de fournisseur révèle ce qu'on n'a pas écrit
+
+Le développement s'est fait contre Groq. Passer à Gemini, puis à Cerebras, a
+sorti quatre défauts d'un coup — tous invisibles tant qu'on ne teste qu'un seul
+fournisseur.
+
+| Symptôme | Cause réelle |
+|---|---|
+| 400 dès le second tour | Le framework rejoue `reasoning_content` dans l'historique, Groq refuse ce champ en entrée |
+| 400 sur un classement | Le générateur de schéma marque **tout** obligatoire sauf `omitempty` : le modèle omettait `ascending` à juste titre |
+| `unsupported protocol scheme ""` | Sans `OPENAI_BASE_URL`, aucune URL n'est posée — la configuration **par défaut** du projet ne démarrait pas |
+| 402, 403, 404 rendus « une erreur est survenue » | Trois pannes parfaitement diagnosticables noyées dans un message générique |
+
+La leçon qui vaut d'être dite en soutenance : **je codais contre la tolérance
+d'un fournisseur, pas contre une spécification.** Le durcissement du périmètre a
+ensuite été écrit contre Groq et vérifié contre Gemini sans toucher au code —
+un garde-fou qui ne tient que sur le modèle qui a servi à l'écrire n'est pas un
+garde-fou.
+
+### Le premier log qu'il a fallu réparer
+
+Avant de pouvoir diagnostiquer quoi que ce soit, il a fallu corriger le
+journal lui-même. Il affichait `objet=""` : le code loggait `Response.Object`,
+qui ne porte que le type d'événement, alors que le détail vit dans
+`Response.Error`. Une erreur signalée, impossible à diagnostiquer.
+
+C'est le premier correctif de la série, et sans lui aucun des suivants n'était
+trouvable.
+
+### Ce que la mesure a démenti
+
+Trois fonctions que j'aurais optimisées d'instinct ne coûtaient rien :
+`Search` à 350 µs, les sorties d'outils à 110–738 jetons, le prompt statique à
+2 599 jetons. La preuve que le prompt n'est pas le levier tient en deux
+mesures : 5 470 jetons → 1,5 s, 5 972 jetons → 26,1 s. Prompt quasi identique,
+latence dix-sept fois supérieure.
+
+Les deux qui décrochaient à un million de stations n'étaient pas dans ma liste :
+`Rank` triait tout le parc pour rendre cinq stations (1 096 ms → 57 ms), et
+`Search` appelait `strings.Fields` **dans** la boucle, une fois par station
+(1 515 242 allocations → 43).
+
+### La panne que seule la concurrence révèle
+
+Tout avait été mesuré en série. À 200 clients simultanés, des centaines de 500 :
+`FATAL: sorry, too many clients already`. Le service de sessions du framework
+ouvre sa base sans borner le pool, et `database/sql` autorise alors un nombre
+illimité de connexions.
+
+Borner à 64 requêtes en vol a **augmenté** le débit de 30 % et divisé la latence
+p95 par trois, en plus de supprimer les erreurs. Contre-intuitif, et c'est
+précisément pour ça que ça mérite d'être mesuré plutôt que supposé.
+
+### Mes erreurs, puisque ce journal les inclut
+
+**J'ai chronométré la file d'attente en croyant mesurer des modèles.** Un banc
+comparait trois modèles et donnait des écarts nets. Puis trois questions ont
+rendu ~21 000 ms *exactement* — trop uniforme pour être de la latence. C'était
+le palier gratuit qui limite les jetons par minute et fait **attendre** au lieu
+de rejeter. Le classement des modèles est donc à prendre avec prudence, et
+c'est écrit tel quel dans le README.
+
+**J'ai écrit deux fois un audit tout vert sur des cas jamais exécutés.** D'abord
+une identité unique pour tout le fichier : ma propre limite de débit renvoyait
+429 aux cas suivants. Puis, en corrigeant, une identité par appel : la
+conversation appartenait à l'une et le message partait sous une autre, donc 404
+partout. Deux fois un rapport parfait sur du vide — pire que pas d'audit.
+
+**J'ai failli annoncer deux défauts qui n'existaient pas.** Un tiroir latéral qui
+semblait ne pas s'ouvrir : c'était le panneau de test masqué, où les transitions
+CSS ne progressent pas. Et des 500 sous charge que je n'arrivais plus à
+reproduire : c'est la charge *soutenue* qui épuise le pool, pas la pointe.
+
+**J'ai réécrit deux fois du code de la bibliothèque standard** — `strconv.Itoa`
+et `strings.Contains` — dans des fichiers que je venais d'écrire. Corrigé, mais
+c'est le genre de réflexe qui passe une relecture rapide.
+
+### Ce que j'ai refusé de faire
+
+`internal/httpapi` reste à 26 % de couverture et **j'y laisse**. Ces
+gestionnaires sont testés par la suite d'intégration, contre le vrai PostgreSQL
+et le vrai routage. Ajouter 150 lignes de doublure de session pour afficher
+60 % testerait *moins* pour plus cher — du théâtre de couverture.
+
+De même, la lecture de fichiers, de PDF et d'images a été écartée malgré la
+tentation : un agent de stations Vélib' qui lit des images n'a pas de sens
+produit, et l'ajouter contredirait la règle de périmètre qui bloque justement
+les demandes hors sujet.

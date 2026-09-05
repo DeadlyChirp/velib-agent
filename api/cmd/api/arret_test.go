@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -25,7 +24,14 @@ import (
 // Ce test relit les deux fichiers et vérifie qu'ils restent d'accord.
 
 func TestDelaiDeGraceDockerCouvreLArretDuCode(t *testing.T) {
-	racine := racineDuDepot(t)
+	racine, ok := racineDuDepot()
+	if !ok {
+		// Le conteneur de test ne monte que api/ : docker-compose.yml est hors
+		// de portée. Un test qui ne PEUT PAS s'exécuter s'abstient, il n'échoue
+		// pas — sinon on apprend à ignorer un rouge qui ne veut rien dire.
+		// La CI, elle, récupère tout le dépôt et l'exécute vraiment.
+		t.Skip("docker-compose.yml hors de portée depuis ce répertoire")
+	}
 
 	// Ce que le code s'accorde.
 	source, err := os.ReadFile(filepath.Join(racine, "api", "cmd", "api", "main.go"))
@@ -81,15 +87,18 @@ func TestDelaiDeGraceDockerCouvreLArretDuCode(t *testing.T) {
 // racineDuDepot remonte depuis le paquet jusqu'au dossier qui contient
 // docker-compose.yml. Un chemin relatif en dur casserait au premier
 // déplacement du fichier.
-func racineDuDepot(t *testing.T) string {
-	t.Helper()
+//
+// Rend false plutôt que d'échouer : le fichier peut légitimement être hors de
+// portée, par exemple quand les tests tournent dans un conteneur qui ne monte
+// que api/.
+func racineDuDepot() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("répertoire courant : %v", err)
+		return "", false
 	}
 	for i := 0; i < 6; i++ {
 		if _, err := os.Stat(filepath.Join(dir, "docker-compose.yml")); err == nil {
-			return dir
+			return dir, true
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -97,6 +106,5 @@ func racineDuDepot(t *testing.T) string {
 		}
 		dir = parent
 	}
-	t.Fatalf("racine du dépôt introuvable depuis %s", strings.TrimSpace(dir))
-	return ""
+	return "", false
 }

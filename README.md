@@ -55,7 +55,7 @@ retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
 d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
-make test              # 94 tests, 149 cas, sans réseau ni base
+make test              # 99 tests, 154 cas, sans réseau ni base
 make test-front        # 28 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-live         # contre la vraie API Vélib'
@@ -344,9 +344,11 @@ les conversations d'Alice.
 | `observability` | 94 % | division par zéro, borne mémoire, accès concurrent |
 | `tools` | 88 % | schémas et bornes des sorties |
 | `velib` | 85 % | agrégations, cache, jointure, **client HTTP** |
-| `httpapi` | 18 % | limite de débit, traduction des erreurs, titres |
+| `httpapi` | 26 % | débit, concurrence, traduction des erreurs, titres |
+| `agent` | 19 % | compatibilité fournisseur, cloisonnement des clés |
 
-Total : **62 %**, contre 32 % avant cette passe.
+**99 fonctions de test, 154 cas**, 59 % de couverture globale — contre 32 %
+avant cette passe.
 
 La frontière réseau mérite une mention. `client.go` était à **0 %** : c'est
 pourtant là que vivent les vrais bugs, parce que c'est le seul endroit qui
@@ -381,7 +383,7 @@ ponctuation haute, ce qui transforme `javascript:alert(1)` en
 bord heureux, noté comme tel dans le test : c'est un **accident**, pas une
 défense, et la vraie défense reste de ne jamais écrire de HTML brut.
 
-**Sur les 18 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
+**Sur les 26 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
 les tests de ce paquet interrogent le binaire conteneurisé par HTTP, donc Go ne
 peut pas les compter. Le compromis est délibéré — ils exercent le vrai routage,
 la vraie base et la vraie sérialisation. C'est d'ailleurs ce qui leur a fait
