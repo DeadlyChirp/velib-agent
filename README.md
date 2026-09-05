@@ -649,6 +649,30 @@ information — sur ce palier, **c'est le débit qui contraint, pas la latence**
 Diviser les jetons par cinq multiplie d'autant le nombre de questions possibles
 par minute.
 
+### L'arrêt propre reposait sur un accord que personne ne vérifiait
+
+`main.go` accorde 25 secondes aux conversations en cours pour se terminer et
+être persistées, avec ce commentaire : « sans ça, un simple redéploiement
+perdrait la réponse que l'utilisateur était en train de lire ».
+
+Sauf que **Docker envoie SIGKILL 10 secondes après SIGTERM**, par défaut. La
+promesse du commentaire était cassée par un fichier de configuration qui ne
+mentionnait pas la spécification.
+
+Le défaut ne se voyait que sur les tours de plus de dix secondes — mesurés
+jusqu'à 26 s sur un modèle raisonneur. Autrement dit : invisible en
+développement, où l'on redéploie rarement au milieu d'une conversation, et
+visible le jour d'une mise en production en pleine journée.
+
+`stop_grace_period: 30s` corrige l'écart, et un test relit **les deux fichiers**
+pour vérifier qu'ils restent d'accord : le délai Docker doit dépasser celui du
+code, avec de la marge pour journaliser, et couvrir le tour le plus long mesuré.
+
+Ce test a d'ailleurs failli mesurer autre chose que ce qu'il annonce : sa
+première expression régulière capturait le `WithTimeout` du préchauffage du
+cache au lieu de celui de l'arrêt, et affichait fièrement un accord parfait
+entre deux valeurs sans rapport.
+
 ### Et sous la charge de plusieurs personnes ?
 
 Tout ce qui précède a été mesuré **en série**, un appel après l'autre. C'est le

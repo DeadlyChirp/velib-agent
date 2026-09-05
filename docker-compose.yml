@@ -62,6 +62,21 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
     restart: unless-stopped
+
+    # ⚠️ SANS CETTE LIGNE, l'arret propre du code ne sert a rien.
+    #
+    # main.go accorde 25 secondes aux conversations en cours pour se terminer et
+    # etre persistees, avec ce commentaire : « sans ca, un simple redeploiement
+    # perdrait la reponse que l'utilisateur etait en train de lire ».
+    #
+    # Or Docker envoie SIGKILL 10 secondes apres SIGTERM par defaut. La promesse
+    # etait donc cassee par la configuration, et seulement pour les tours longs
+    # — ceux qui durent plus de dix secondes, mesures jusqu'a 26 s sur un modele
+    # raisonneur. Autrement dit : invisible en developpement, visible le jour
+    # d'un redeploiement en pleine journee.
+    #
+    # 30 s laisse la marge des 25 s du code plus le temps de journaliser.
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "/usr/local/bin/api", "-healthcheck"]
       interval: 30s
