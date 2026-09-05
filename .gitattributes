@@ -1,0 +1,57 @@
+# Fins de ligne, décidées ici plutôt que laissées à la configuration de chacun.
+#
+# ── POURQUOI CE FICHIER ─────────────────────────────────────────────────────
+#
+# Git stocke du LF, mais `core.autocrlf=true` — le défaut sur Windows —
+# convertit tout en CRLF à l'extraction. Conséquence mesurée sur un clone frais
+# sous Windows : `gofmt -l .` signalait les 38 fichiers Go du projet, et
+# `make check` était donc inutilisable localement.
+#
+# La CI ne le voyait pas : elle tourne sur Linux, où l'extraction reste en LF.
+# Un défaut qui ne se manifeste que sur la machine du développeur est le pire
+# des deux mondes — invisible là où on regarde, bloquant là où on travaille.
+#
+# Déclarer les fins de ligne ici plutôt que de demander à chacun de configurer
+# son git : le dépôt porte sa propre règle, et elle s'applique à tout le monde.
+
+# Par défaut : Git détecte le texte et normalise en LF dans le dépôt.
+* text=auto eol=lf
+
+# ── Fichiers qui EXIGENT du LF ──────────────────────────────────────────────
+#
+# gofmt refuse le CRLF. Un script shell en CRLF échoue avec « bad interpreter »,
+# un message qui ne mentionne jamais les fins de ligne. Un Dockerfile en CRLF
+# casse ses RUN de la même façon, à l'intérieur du conteneur.
+
+*.go        text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+*.sh        text eol=lf
+*.py        text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.html      text eol=lf
+*.sql       text eol=lf
+*.conf      text eol=lf
+Dockerfile  text eol=lf
+Makefile    text eol=lf
+.env.example text eol=lf
+.dockerignore text eol=lf
+.gitignore  text eol=lf
+
+# ── Binaires : jamais touchés ───────────────────────────────────────────────
+#
+# Une « normalisation » sur un PNG le corrompt silencieusement.
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff  binary
+*.woff2 binary
