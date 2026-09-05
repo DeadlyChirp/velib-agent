@@ -146,3 +146,69 @@ func TestLoadDitCeQuiManque(t *testing.T) {
 		}
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La distinction « absente » / « posée à vide »
+// ─────────────────────────────────────────────────────────────────────────────
+
+// env() traite le vide comme une absence, ce qui est le bon comportement
+// partout SAUF quand le vide est un choix.
+//
+// MODEL_TEMPERATURE vaut 0.1 par défaut, mais les modèles raisonneurs d'OpenAI
+// rejettent toute température : il faut pouvoir dire « n'envoie rien ». Avec
+// env(), écrire MODEL_TEMPERATURE= aurait rendu « 0.1 » et l'échappatoire
+// documentée n'aurait pas fonctionné — sans que rien n'échoue au démarrage.
+func TestEnvPoseeDistingueAbsentDeVide(t *testing.T) {
+	// Absente : on prend le défaut.
+	if got := envPosee("CONFIG_TEST_JAMAIS_POSEE", "0.1"); got != "0.1" {
+		t.Errorf("variable absente = %q, attendu le défaut", got)
+	}
+
+	// Posée à vide : c'est un CHOIX, on le respecte.
+	t.Setenv("CONFIG_TEST_POSEE_VIDE", "")
+	if got := envPosee("CONFIG_TEST_POSEE_VIDE", "0.1"); got != "" {
+		t.Errorf("variable posée à vide = %q, attendu la chaîne vide — "+
+			"c'est toute la raison d'être de cette fonction", got)
+	}
+
+	// Le contraste avec env(), qui rendrait le défaut sur le même cas.
+	if got := env("CONFIG_TEST_POSEE_VIDE", "0.1"); got != "0.1" {
+		t.Errorf("env sur une variable vide = %q, attendu le défaut : "+
+			"si ce comportement change, envPosee n'a plus de raison d'être", got)
+	}
+
+	t.Setenv("CONFIG_TEST_POSEE_VALEUR", "  0.7  ")
+	if got := envPosee("CONFIG_TEST_POSEE_VALEUR", "0.1"); got != "0.7" {
+		t.Errorf("envPosee = %q, attendu la valeur détourée", got)
+	}
+}
+
+// Une température illisible doit se voir AU DÉMARRAGE. Sans cette validation,
+// le service part normalement et c'est le fournisseur qui rejette la première
+// question, avec un message qui ne nomme pas la variable en cause.
+func TestTemperatureIllisibleEstRefuseeAuDemarrage(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	t.Setenv("POSTGRES_DSN", "postgres://x:y@localhost:5432/z?sslmode=disable")
+	t.Setenv("MODEL_TEMPERATURE", "tiède")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("une température non numérique a été acceptée")
+	}
+	if !strings.Contains(err.Error(), "MODEL_TEMPERATURE") {
+		t.Errorf("le message ne nomme pas la variable fautive :\n%s", err)
+	}
+
+	// Et la vider doit rester valide : c'est l'échappatoire documentée.
+	t.Setenv("MODEL_TEMPERATURE", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("une température vide devrait être valide : %v", err)
+	}
+	if cfg.ModelTemperature != "" {
+		t.Errorf("ModelTemperature = %q, attendu vide", cfg.ModelTemperature)
+	}
+	if r := cfg.Redacted()["temperature"]; r != "(non envoyée)" {
+		t.Errorf("journal = %v, attendu « (non envoyée) »", r)
+	}
+}

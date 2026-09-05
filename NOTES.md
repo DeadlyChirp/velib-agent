@@ -367,15 +367,15 @@ chacun.
 
 | Suite | Cas |
 |---|---|
-| Tests Go | 105 fonctions, 160 cas |
+| Tests Go | 108 fonctions, 163 cas |
 | Rendu front | 32 vérifications, dont six charges XSS |
 | Injections HTTP | 30 |
 | Matrice d'injections | 44 |
 | Comportements | 21 |
-| Cohérence de la documentation | 12 |
+| Cohérence de la documentation | 19 |
 
-Les six tournent en CI. Les suites qui appellent le modèle — dix injections de
-prompt, six cas d'évaluation — restent manuelles : elles coûtent des jetons, et
+Elles tournent toutes en CI, persistance comprise. Les suites qui appellent le
+modèle — dix injections de prompt, six cas d'évaluation — restent manuelles : elles coûtent des jetons, et
 le palier gratuit plafonne à vingt requêtes par jour et par modèle.
 
 ### Mes erreurs de cette passe
@@ -586,3 +586,57 @@ le premier se croit, le second se remarque.
 
 Aucun test ne les avait jamais comparés — il a fallu les imprimer l'un à côté
 de l'autre pour que ça saute aux yeux.
+
+---
+
+## Ollama en local, et le réglage qui vaut plus que le modèle
+
+Le projet tourne désormais sans clé et sans quota : `qwen2.5:7b` via Ollama,
+`host.docker.internal` depuis le conteneur, ~3 s par réponse. Vérifié plutôt que
+supposé : Docker Desktop relaie vers la boucle locale de l'hôte, donc Ollama
+n'a besoin d'aucun réglage d'écoute, contrairement à ce que j'avais annoncé.
+
+**Deux modèles mesurés, 100 tours chacun.** `qwen2.5:7b` 95 %, `llama3.1:8b`
+89 %. Mon pari initial portait sur llama, entraîné explicitement à l'appel
+d'outil : il perd, et perd sur une seule question — le classement, à 55 %.
+Journal complet, protocole et matériel : `audit/mesures-modeles.md`.
+
+**J'ai d'abord publié 80 % puis 98 % pour le même modèle**, avec un détecteur
+pourtant devenu plus strict entre les deux. Un détecteur plus strict ne remonte
+pas un score : il y avait un facteur externe, et c'en était un — la première
+mesure tournait pendant le téléchargement de l'autre modèle. Deuxième fois dans
+ce projet qu'un banc chronomètre autre chose que ce qu'il annonce. Les deux
+chiffres ont été jetés et tout a été refait machine au repos.
+
+**La vraie trouvaille n'est pas le modèle, c'est la température.** Le projet
+n'en fixait aucune : chaque fournisseur appliquait la sienne. À 0.1, le même
+modèle passe de 95 % à **150/150**. Les échecs supprimés étaient tous de la
+syntaxe d'appel d'outil arrivant en clair dans la réponse.
+
+Deux hypothèses ont été testées et réfutées AVANT de toucher au code : le
+paramètre booléen de `rank_stations` — 60/60 des deux côtés en isolation, schéma
+non modifié — et un contexte tronqué à 4096 jetons — `ollama ps` en annonce
+32768. La variable était sous mes yeux : mon expérience isolée forçait
+`temperature: 0`, le pipeline non.
+
+**Deux pièges rencontrés en l'implémentant.**
+
+`env()` traite le vide comme une absence et rend le défaut. `MODEL_TEMPERATURE=`
+aurait donc rendu `0.1`, et les modèles raisonneurs d'OpenAI — qui refusent
+toute température — n'auraient eu aucun moyen de la désactiver. Rien n'aurait
+échoué au démarrage : le service part, le fournisseur rejette la première
+question. D'où `envPosee`, et un `${VAR-0.1}` sans deux-points côté compose.
+
+Et **mon propre test d'exhaustivité du `.env.example` avait un trou** : il
+énumérait les helpers connus, `env` et `envDuration`. Le troisième lui a échappé
+en silence et il est resté VERT sur un fichier incomplet — le défaut exact qu'il
+existe pour empêcher, à un niveau d'indirection près. Il reconnaît maintenant
+toute fonction dont le nom commence par `env`, et je l'ai vérifié en rouge
+d'abord.
+
+**Un test mal cadré, aussi.** `persistance.py` vérifiait que la réponse citait
+« 1 519 » — donc la JUSTESSE, alors que son objet est la persistance. Il est
+passé au rouge le jour où un modèle local a répondu par un fragment de schéma
+JSON : un échec réel, mais du modèle, pas de la persistance. Un test qui rougit
+pour une raison étrangère à son objet est un test qu'on apprend à ignorer.
+L'assertion a été retirée, la justesse relevant de `evaluation.py`.

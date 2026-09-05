@@ -300,6 +300,18 @@ func TestCompteDeMessagesCorrespondAuTableau(t *testing.T) {
 	id := idDe(t, b)
 	defer appel(t, "DELETE", "/api/conversations/"+id, moi, "")
 
+	// ⚠️ Il FAUT un message, sinon ce test ne teste rien.
+	//
+	// La première version relisait la conversation à peine créée : le compte et
+	// le tableau valaient tous deux zéro, l'assertion comparait 0 à 0, et le
+	// défaut qu'elle documente serait repassé au vert sans être corrigé.
+	//
+	// Le modèle peut échouer ici — la CI tourne avec une clé factice — et ça
+	// n'a pas d'importance : la QUESTION est persistée dans tous les cas, ce qui
+	// suffit à rendre les deux valeurs non nulles et l'assertion mordante.
+	appel(t, "POST", "/api/conversations/"+id+"/messages", moi,
+		`{"message":"Combien de stations au total ?"}`)
+
 	st, b = appel(t, "GET", "/api/conversations/"+id, moi, "")
 	if st != http.StatusOK {
 		t.Fatalf("relecture : statut %d, corps %s", st, b)
@@ -318,6 +330,13 @@ func TestCompteDeMessagesCorrespondAuTableau(t *testing.T) {
 	if detail.MessageCount == nil {
 		t.Fatal("message_count absent de la vue détail, qui est la seule à " +
 			"pouvoir le calculer")
+	}
+	// Garde-fou du garde-fou : si la conversation est vide, l'assertion
+	// suivante compare 0 à 0 et ne prouve rien. On refuse ce cas plutôt que de
+	// rendre un vert vide.
+	if len(detail.Messages) == 0 {
+		t.Fatal("aucun message persisté : l'assertion suivante comparerait " +
+			"0 à 0 et ne testerait rien")
 	}
 	if *detail.MessageCount != len(detail.Messages) {
 		t.Errorf("message_count = %d pour %d message(s) dans le tableau : "+

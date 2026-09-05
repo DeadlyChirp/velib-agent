@@ -79,8 +79,9 @@ type Match struct {
 // Mesuré à 1 519 000 stations : 61 Mo alloués et 147 ms par recherche, dont la
 // quasi-totalité pour des résultats immédiatement jetés.
 //
-// limit <= 0 garde l'ancien sens — « aucune borne » — parce que la fonction
-// exportée Search le documente ainsi.
+// limit <= 0 signifie « aucune borne ». Ce sens venait d'une fonction exportée
+// Search, supprimee depuis parce que seuls les bancs l'appelaient : la
+// convention, elle, est conservee, et FindStations s'y appuie.
 func searchTop(stations []Station, query string, limit int) ([]Match, int) {
 	q := normalize(query)
 	if q == "" {

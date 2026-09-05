@@ -162,23 +162,20 @@ compare("fonctions de test (NOTES)",
 compare("cas de test (NOTES)",
         cherche(NOTES, r"Tests Go \| \d+ fonctions, (\d+) cas"), cas_reels)
 
-print()
-print("=== Comptes d'audit ===")
-# Chaque script annonce lui-meme son nombre de cas : on le lit dans le script
-# plutot que de le recompter a la main.
-for nom, fichier, motif_doc in [
-    ("vecteurs d'injection", "injections.py", r"\*\*(\d+) vecteurs d'injection"),
-    ("attaques HTTP", "attaques_api.py", r"(\d+) attaques, 29 tenues"),
-]:
-    src = (RACINE / "audit" / fichier).read_text(encoding="utf-8")
-    # On compte les appels a juge()/cas() dans les boucles : approximation
-    # volontairement grossiere, on veut detecter une derive, pas compter juste.
-    annonce = cherche(README, motif_doc)
-    if annonce is None:
-        print("  -     %-40s non annonce dans le README" % nom)
-        continue
-    verifies += 1
-    print("  OK    %-40s annonce %s (verifie a l'execution)" % (nom, annonce))
+# ⚠️ Il y avait ici un bloc « Comptes d'audit » qui imprimait deux « OK …
+# (verifie a l'execution) » et incrementait le compteur SANS RIEN VERIFIER : il
+# lisait le fichier source dans une variable jamais utilisee, et son commentaire
+# decrivait un comptage qui n'existait pas.
+#
+# Deux verifications fantomes dans le script dont le seul role est de traquer
+# les affirmations fausses, et elles gonflaient son propre total. Trouve par un
+# audit, pas par moi.
+#
+# Supprime plutot que repare : le nombre de vecteurs de injections.py et
+# attaques_api.py est deja verifie la ou il compte, a l'execution, par les
+# scripts eux-memes — ils impriment leur decompte et sortent en erreur si un
+# vecteur casse. Le recompter statiquement ici aurait duplique la source de
+# verite sans rien prouver de plus.
 
 print()
 print("=== Cohérence entre README et NOTES ===")

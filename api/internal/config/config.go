@@ -36,6 +36,24 @@ type Config struct {
 	// fournisseurs et un Mistral ou un Ollama rejetterait un parametre inconnu.
 	ReasoningEffort string
 
+	// ModelTemperature est gardée en CHAÎNE, comme ReasoningEffort et pour la
+	// même raison : la chaîne vide signifie « ne rien envoyer », ce qu'un
+	// float64 ne sait pas exprimer — 0 est une température parfaitement valide.
+	//
+	// Défaut 0.1, et c'est mesuré, pas choisi au doigt mouillé. Sur les cinq
+	// questions de référence avec qwen2.5:7b en local, 100 tours par configuration :
+	// au défaut du fournisseur (0,7 chez ce modèle) 95 % de réponses bien
+	// formées, à 0.1 cent pour cent. Les échecs supprimés étaient des fuites de
+	// syntaxe d'appel d'outil dans la réponse — voir audit/mesures-modeles.md.
+	//
+	// C'est cohérent avec la thèse du projet : les outils calculent, le modèle
+	// ne fait que choisir un outil et rédiger une phrase. La créativité n'a
+	// rien à y gagner et coûte de la constance de format.
+	//
+	// ⚠️ À VIDER pour les modèles raisonneurs d'OpenAI (o1, o3), qui n'acceptent
+	// que la valeur par défaut et rejettent la requête sinon.
+	ModelTemperature string
+
 	// PostgreSQL
 	PostgresDSN string
 
@@ -81,6 +99,8 @@ func Load() (Config, error) {
 
 		ReasoningEffort: env("REASONING_EFFORT", ""),
 
+		ModelTemperature: envPosee("MODEL_TEMPERATURE", "0.1"),
+
 		PostgresDSN: env("POSTGRES_DSN", ""),
 
 		VelibInformationURL: env("VELIB_INFORMATION_URL",
@@ -105,6 +125,13 @@ func Load() (Config, error) {
 		problems = append(problems,
 			"POSTGRES_DSN est vide : le compose la fournit, en local utiliser "+
 				"postgres://velib:velib@localhost:5432/velib?sslmode=disable")
+	}
+	if c.ModelTemperature != "" {
+		if _, err := strconv.ParseFloat(c.ModelTemperature, 64); err != nil {
+			problems = append(problems,
+				"MODEL_TEMPERATURE n'est pas un nombre : "+c.ModelTemperature+
+					" — la vider pour ne rien envoyer au fournisseur")
+		}
 	}
 	if c.VelibCacheTTL < time.Second {
 		problems = append(problems,
@@ -136,6 +163,7 @@ func (c Config) Redacted() map[string]any {
 		// défaut explicite et n'est jamais vide.
 		"model_base_url":   c.ModelBaseURL,
 		"reasoning_effort": orDefault(c.ReasoningEffort, "(non envoyé)"),
+		"temperature":      orDefault(c.ModelTemperature, "(non envoyée)"),
 		"model_api_key":    key,
 		"postgres":         redactDSN(c.PostgresDSN),
 		"velib_cache_ttl":  c.VelibCacheTTL.String(),
@@ -156,6 +184,25 @@ func redactDSN(dsn string) string {
 func env(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
+	}
+	return def
+}
+
+// envPosee distingue « variable absente » de « variable posée à vide ».
+//
+// env() ne le peut pas : il traite le vide comme une absence et rend le défaut.
+// C'est le bon comportement pour presque tout — une variable vide dans un .env
+// est une variable qu'on a oublié de remplir.
+//
+// Sauf quand le VIDE EST UN CHOIX. MODEL_TEMPERATURE=0.1 par défaut, mais les
+// modèles raisonneurs d'OpenAI refusent toute température : il faut pouvoir
+// dire « n'envoie rien ». Avec env(), écrire MODEL_TEMPERATURE= aurait rendu
+// « 0.1 » et l'échappatoire documentée n'aurait pas fonctionné — un piège
+// trouvé en relisant, pas à l'exécution, parce que rien n'échoue : le service
+// démarre et le fournisseur rejette la première question.
+func envPosee(key, def string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return strings.TrimSpace(v)
 	}
 	return def
 }

@@ -52,6 +52,12 @@ services:
       # Vide = paramètre non envoyé, car il n'existe pas chez tous les fournisseurs.
       REASONING_EFFORT: "${REASONING_EFFORT:-}"
 
+      # ⚠️ ${VAR-defaut} SANS deux-points, contrairement à toutes les autres
+      # lignes de ce bloc. Avec « :- », une variable posée À VIDE retombe sur le
+      # défaut, et il devient impossible de dire « n'envoie aucune température »
+      # — ce dont les modèles raisonneurs d'OpenAI ont besoin.
+      MODEL_TEMPERATURE: "${MODEL_TEMPERATURE-0.1}"
+
       # Les deux flux de données. Transmis explicitement parce que
       # .env.example les annonce surchargeables — sans ces deux lignes, la
       # promesse ne tenait que hors Docker, c'est-à-dire nulle part dans le

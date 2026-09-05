@@ -27,8 +27,17 @@ func TestEnvExempleListeToutesLesVariables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lecture de config.go : %v", err)
 	}
+	// ⚠️ `env\w*\(` et non `env(?:Duration)?\(`.
+	//
+	// La version précédente énumérait les helpers connus : env et envDuration.
+	// Le jour où un troisième est apparu — envPosee, pour distinguer « absente »
+	// de « posée à vide » — sa variable a échappé au contrôle en silence, et ce
+	// test est resté VERT sur un .env.example incomplet. C'est exactement le
+	// défaut qu'il existe pour empêcher, à un niveau d'indirection près.
+	//
+	// On reconnaît maintenant toute fonction dont le nom commence par « env ».
 	lues := map[string]bool{}
-	for _, m := range regexp.MustCompile(`env(?:Duration)?\("([A-Z_][A-Z0-9_]*)"`).
+	for _, m := range regexp.MustCompile(`env\w*\("([A-Z_][A-Z0-9_]*)"`).
 		FindAllSubmatch(source, -1) {
 		lues[string(m[1])] = true
 	}

@@ -19,6 +19,7 @@ seulement le code. Trois entrées possibles selon ce que vous cherchez :
 | le faire tourner | [Lancer](#lancer), deux commandes |
 | juger les choix techniques | [Les décisions, et pourquoi](#les-décisions-et-pourquoi) |
 | voir ce qui a été mesuré | [Performance](#performance--ce-que-la-mesure-a-dit) et [Sécurité](#sécurité--ce-quon-a-essayé-de-casser) |
+| choisir un modèle | [`audit/mesures-modeles.md`](audit/mesures-modeles.md), 100 tours par modèle |
 
 Trois choses valent le détour : le [passage à l'échelle](#et-si-le-parc-devenait-cent-fois-plus-gros-) où deux fonctions
 décrochent à un million de stations et pas celles qu'on croit, la [mesure ratée](#une-mesure-ratée-et-pourquoi-je-la-raconte)
@@ -55,7 +56,7 @@ retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
 d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
-make test              # 105 tests, 160 cas, sans réseau ni base
+make test              # 108 tests, 163 cas, sans réseau ni base
 make test-front        # 32 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-persistance  # coupe la pile, la relance, relit l'historique
@@ -365,6 +366,47 @@ token, affichage des appels d'outils en cours, gestion des erreurs, navigation
 au clavier, et `textContent` partout — jamais `innerHTML`, puisque le contenu
 vient d'un modèle.
 
+### 11. Une température basse par défaut, et le chiffre qui l'a décidée
+
+Le projet ne fixait aucune température : chaque fournisseur appliquait la
+sienne — 0,7 chez qwen2.5, 1,0 chez OpenAI. En mesurant la fiabilité d'un
+modèle local sur les cinq questions de référence, un écart net est apparu :
+
+| Configuration | Réponses bien formées |
+|---|---|
+| défaut du fournisseur | 95 % — 95/100 |
+| **`MODEL_TEMPERATURE=0.1`** | **100 % — 150/150** |
+
+Les échecs supprimés étaient tous de la **syntaxe d'appel d'outil arrivant en
+clair dans la réponse** : `{"name": "rank_stations", "arguments": …}` à la place
+d'une phrase. Le protocole complet est dans
+[`audit/mesures-modeles.md`](audit/mesures-modeles.md).
+
+Le raisonnement se défend sans les chiffres, et c'est la thèse du projet
+reprise à l'envers : **les outils calculent, le modèle ne fait que choisir un
+outil et rédiger une phrase.** Il n'invente aucun nombre, ne rédige aucun texte
+créatif, ne fait aucun choix esthétique. Une température élevée ne peut donc
+rien apporter ici, alors qu'elle coûte de la constance de format.
+
+Deux détails valent d'être signalés, parce qu'ils étaient des pièges.
+
+**J'ai cherché la cause aux mauvais endroits, et j'ai testé avant de corriger.**
+Les échecs se concentraient sur la seule question dont l'outil prend un
+booléen : j'ai cru tenir le coupable. Testé en isolation, booléen contre
+énumération de chaînes, 60 appels — **60/60 des deux côtés**. Le schéma n'est
+pas en cause et n'a pas été modifié. Seconde hypothèse, un contexte tronqué à
+4 096 jetons : `ollama ps` en annonce 32 768. Réfutée aussi. La vraie variable
+était sous mes yeux depuis le début — mon expérience isolée forçait
+`temperature: 0`, le pipeline non.
+
+**Le champ doit pouvoir être vidé.** Les modèles raisonneurs d'OpenAI rejettent
+toute température autre que la leur. `MODEL_TEMPERATURE=` vide n'envoie donc
+rien — ce qui a demandé un lecteur d'environnement distinguant « absente » de
+« posée à vide », le lecteur habituel traitant le vide comme une absence et
+rendant le défaut. Sans ça, l'échappatoire documentée n'aurait pas fonctionné,
+et rien n'aurait échoué au démarrage : le service part, et c'est le fournisseur
+qui rejette la première question.
+
 ---
 
 ---
@@ -438,7 +480,7 @@ les conversations d'Alice.
 | `tools` | 90 % | schémas et bornes des sorties |
 | `velib` | 90 % | agrégations, cache, jointure, **client HTTP** |
 | `httpapi` | 23 % | débit, concurrence, traduction des erreurs, titres |
-| `agent` | 11 % | compatibilité fournisseur, cloisonnement des clés |
+| `agent` | 21 % | compatibilité fournisseur, cloisonnement des clés |
 
 **Trois vulnérabilités corrigées.** `govulncheck` tourne en CI et ne signale que
 ce que le code **appelle réellement** — pas tout ce qui traîne dans `go.sum`.
@@ -468,7 +510,7 @@ les a fait bouger de plusieurs points à tests strictement identiques,
 l'instrumentation ne comptant pas les mêmes instructions. Une raison de plus de
 ne pas en faire un objectif chiffré.
 
-**105 fonctions de test, 160 cas**, 62 % de couverture sur `internal/` — contre
+**108 fonctions de test, 163 cas**, 62 % de couverture sur `internal/` — contre
 32 % avant cette passe.
 
 Le périmètre est précisé parce qu'il change le chiffre : 62 % sur `internal/`,
@@ -824,9 +866,12 @@ contre **20** en `low`, pour la même réponse juste. Le compromis est sans dang
 ici parce que le modèle ne calcule rien — les agrégations sont faites en Go, de
 façon déterministe. Il lui reste à choisir l'outil et rédiger.
 
-D'où `REASONING_EFFORT=low` par défaut dans `.env.example`. Le paramètre n'est
-**envoyé que s'il est renseigné** : il n'existe pas chez tous les fournisseurs,
-et un Mistral rejetterait un champ inconnu.
+D'où la recommandation `REASONING_EFFORT=low` **quand le fournisseur est un
+modèle raisonneur**. Le défaut de `.env.example` reste pourtant **vide**, et ce
+n'est pas une contradiction : le paramètre n'existe pas chez tous les
+fournisseurs, il n'est **envoyé que s'il est renseigné**, et un défaut à `low`
+faisait échouer le premier message sur `gpt-4o-mini`. Un défaut qui ne
+fonctionne pas ne sert à rien.
 
 ### Une mesure ratée, et pourquoi je la raconte
 

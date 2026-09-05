@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	openaisdk "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
@@ -91,7 +92,13 @@ func New(cfg config.Config, reg *tools.Registry, log *slog.Logger) (*Service, er
 		llmagent.WithDescription("Assistant sur le parc de stations Vélib' de Paris"),
 		llmagent.WithInstruction(tools.SystemInstruction),
 		llmagent.WithTools(registered),
-		llmagent.WithGenerationConfig(model.GenerationConfig{Stream: stream}),
+		llmagent.WithGenerationConfig(model.GenerationConfig{
+			Stream: stream,
+			// nil quand la configuration la laisse vide : le champ porte
+			// `omitempty`, donc rien ne part. C'est le seul moyen de servir un
+			// modèle raisonneur d'OpenAI, qui rejette toute température.
+			Temperature: temperature(cfg.ModelTemperature),
+		}),
 
 		// Plafond d'itérations d'outils. Sans lui, un modèle qui s'entête à
 		// chercher une station inexistante peut boucler et brûler des jetons
@@ -177,4 +184,25 @@ func stripReasoningContent(_ context.Context, req *openaisdk.ChatCompletionNewPa
 			a.SetExtraFields(map[string]any{})
 		}
 	}
+}
+
+// temperature convertit la valeur de configuration en pointeur, ou nil.
+//
+// Pourquoi un pointeur plutôt qu'un float : le champ du framework porte
+// `omitempty`, donc nil est la SEULE façon de ne rien envoyer. Une température
+// de 0 est parfaitement valide et doit partir ; c'est l'absence de valeur qui
+// doit se distinguer de zéro, et un float64 nu ne sait pas exprimer ça.
+//
+// La chaîne a déjà été validée au démarrage par config.Load : si elle est
+// illisible ici, le service n'aurait pas démarré. On ignore donc l'erreur
+// plutôt que d'inventer un second chemin de gestion pour un cas impossible.
+func temperature(v string) *float64 {
+	if v == "" {
+		return nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return nil
+	}
+	return &f
 }

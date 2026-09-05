@@ -117,3 +117,38 @@ func TestClesDeSessionCloisonnent(t *testing.T) {
 			"produisent la même clé")
 	}
 }
+
+// temperature doit rendre nil — et pas un pointeur vers 0 — quand la
+// configuration est vide.
+//
+// La nuance décide du comportement réel : le champ du framework porte
+// `omitempty`, donc nil ne part pas et 0 part. Or 0 est une température
+// parfaitement valide, et c'est justement ce qu'un modèle raisonneur d'OpenAI
+// rejette. Confondre les deux casserait l'échappatoire documentée.
+func TestTemperatureVideNEnvoieRien(t *testing.T) {
+	if got := temperature(""); got != nil {
+		t.Errorf("température vide = %v, attendu nil : une valeur envoyée "+
+			"casserait les modèles qui la refusent", *got)
+	}
+
+	// Zéro est une valeur, pas une absence.
+	got := temperature("0")
+	if got == nil {
+		t.Fatal("température « 0 » rendue nil : zéro est une valeur valide, " +
+			"c'est le VIDE qui signifie « ne rien envoyer »")
+	}
+	if *got != 0 {
+		t.Errorf("température = %v, attendu 0", *got)
+	}
+
+	got = temperature("0.1")
+	if got == nil || *got != 0.1 {
+		t.Errorf("température « 0.1 » = %v, attendu 0.1", got)
+	}
+
+	// Illisible : config.Load l'a déjà refusée au démarrage, donc ce cas est
+	// théoriquement inatteignable. On rend nil plutôt que de paniquer.
+	if got := temperature("tiède"); got != nil {
+		t.Errorf("température illisible = %v, attendu nil", *got)
+	}
+}

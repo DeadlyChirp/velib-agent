@@ -138,9 +138,18 @@ avec_modele = st == 200 and len(reponse) > 10
 
 if avec_modele:
     print("  mode COMPLET : le modèle a répondu, on vérifiera le contenu")
-    verifier("la réponse cite le parc réel",
-             "1 519" in reponse or "1519" in reponse,
-             reponse[:70].replace("\n", " "))
+    # ⚠️ On ne vérifie PAS que la réponse est juste, et c'est délibéré.
+    #
+    # La version précédente exigeait que la réponse cite « 1 519 ». Elle est
+    # passée au rouge le jour où un modèle local a répondu par un fragment de
+    # schéma JSON — un échec réel, mais du MODÈLE, pas de la persistance. Un
+    # test qui rougit pour une raison étrangère à son objet est un test qu'on
+    # apprend à ignorer, et c'est ainsi qu'on rate le vrai rouge.
+    #
+    # La justesse des réponses a son propre script : audit/evaluation.py.
+    # Ici, seule compte la question suivante — ce qui a été écrit est-il
+    # toujours là après la destruction des conteneurs ?
+    print("  (la justesse de la réponse relève de evaluation.py, pas d'ici)")
 else:
     print("  ⚠️  mode DÉGRADÉ : le modèle n'a pas répondu (statut %s)." % st)
     print("      La persistance de la conversation est vérifiée, celle du")

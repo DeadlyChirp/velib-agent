@@ -1,4 +1,9 @@
-.env
+# .env* et pas .env : une sauvegarde .env.bak, .env.local ou .env.old porte la
+# MEME cle qu'un .env, et le motif litteral ne l'attrapait pas. Verifie apres
+# coup : `git add -An .` proposait d'ajouter un .env.bak-gemini contenant une
+# cle vivante, juste a cote du fichier qu'on voulait committer.
+.env*
+!.env.example
 *.log
 api/bin/
 web/node_modules/
