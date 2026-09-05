@@ -58,6 +58,7 @@ d'erreur ne dit pas que le nom de modèle est le problème.
 make test              # 105 tests, 160 cas, sans réseau ni base
 make test-front        # 32 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
+make test-persistance  # coupe la pile, la relance, relit l'historique
 make test-live         # contre la vraie API Vélib'
 make reset             # arrête la pile ET efface les conversations
 ```
@@ -967,16 +968,17 @@ premier chronomètre mesurait autre chose que ce que je croyais.
 1. **Historiser les snapshots** pour répondre aux questions de tendance
    (« cette station est-elle souvent vide le matin ? »). C'est la seule
    fonctionnalité qui changerait la nature du produit plutôt que de l'élargir.
-2. **Un test qui coupe vraiment la pile.** La spécification demande que l'historique
-   survive à un redémarrage, et c'est la seule de ses exigences qu'aucun test
-   ne rejoue : personne ne vérifie automatiquement « envoyer un message,
-   `docker compose down`, `up`, relire la conversation ». Je l'ai fait à la
-   main, ce qui n'est pas la même chose.
+2. **Rejouer la persistance sur plusieurs redémarrages successifs**, et sur une
+   montée de version du schéma. `audit/persistance.py` couvre aujourd'hui un
+   cycle : un message, `docker compose down`, `up`, relecture. Ce qu'il ne
+   couvre pas, c'est la migration — le jour où la structure des sessions change,
+   c'est là que la persistance casse pour de bon.
 
-   *Ce point disait initialement que la couche HTTP n'était pas couverte. C'était
-   faux — `TestCycleDeVieConversation` et `TestFluxSSE` tournent à chaque
-   poussée. Un audit me l'a montré : je sous-vendais mon travail le plus
-   vérifiable en recopiant une lacune qui n'existait plus.*
+   *Ce point réclamait initialement des tests de bout en bout sur le flux SSE et
+   le cycle de vie des conversations. C'était faux : `TestCycleDeVieConversation`
+   et `TestFluxSSE` existent et tournent à chaque poussée. Un audit me l'a
+   montré. La vraie lacune, elle, n'était nommée nulle part — le redémarrage —
+   et elle est maintenant comblée.*
 3. **Traces OpenTelemetry.** Le framework les expose, et Langfuse est un backend
    OTLP : le coût et la latence par outil deviendraient visibles sans code
    supplémentaire.

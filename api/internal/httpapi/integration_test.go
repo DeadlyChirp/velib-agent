@@ -277,3 +277,62 @@ func TestFluxSSE(t *testing.T) {
 		t.Error("le flux ne se termine ni par done ni par error")
 	}
 }
+
+// message_count doit compter le tableau messages, pas les événements du
+// framework.
+//
+// Les deux différaient : les événements incluent les appels d'outils et leurs
+// réponses, si bien qu'un simple aller-retour rendait « 4 messages » à côté
+// d'un tableau qui en contenait 2. Et la vue « liste » n'ayant pas les
+// événements — elle charge les sessions en mode métadonnées seules, par choix
+// de performance — le champ y sortait à 0 pour tout le monde : pas « aucun
+// message », mais « je n'en sais rien », écrit comme un fait.
+//
+// Trouvé en écrivant le test de persistance, qui affichait les deux nombres
+// côte à côte. Aucun test ne les avait jamais comparés.
+func TestCompteDeMessagesCorrespondAuTableau(t *testing.T) {
+	moi := fmt.Sprintf("test-compte-%d", time.Now().UnixNano())
+
+	st, b := appel(t, "POST", "/api/conversations", moi, "")
+	if st != http.StatusCreated {
+		t.Fatalf("création : statut %d, corps %s", st, b)
+	}
+	id := idDe(t, b)
+	defer appel(t, "DELETE", "/api/conversations/"+id, moi, "")
+
+	st, b = appel(t, "GET", "/api/conversations/"+id, moi, "")
+	if st != http.StatusOK {
+		t.Fatalf("relecture : statut %d, corps %s", st, b)
+	}
+
+	var detail struct {
+		MessageCount *int `json:"message_count"`
+		Messages     []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(b, &detail); err != nil {
+		t.Fatalf("détail illisible : %v — %s", err, b)
+	}
+	if detail.MessageCount == nil {
+		t.Fatal("message_count absent de la vue détail, qui est la seule à " +
+			"pouvoir le calculer")
+	}
+	if *detail.MessageCount != len(detail.Messages) {
+		t.Errorf("message_count = %d pour %d message(s) dans le tableau : "+
+			"un champ nommé message_count posé à côté d'un tableau messages "+
+			"doit compter ce tableau", *detail.MessageCount, len(detail.Messages))
+	}
+
+	// La liste ne peut pas compter : elle ne doit donc RIEN annoncer plutôt
+	// qu'annoncer zéro.
+	st, b = appel(t, "GET", "/api/conversations", moi, "")
+	if st != http.StatusOK {
+		t.Fatalf("liste : statut %d, corps %s", st, b)
+	}
+	if strings.Contains(string(b), "message_count") {
+		t.Errorf("la vue liste expose message_count alors qu'elle ne charge "+
+			"pas les événements : la valeur serait fausse. Corps : %s", b)
+	}
+}

@@ -27,12 +27,20 @@ import (
 const titleStateKey = "title"
 
 // conversationSummary est la vue « liste ».
+//
+// PAS de compte de messages ici, et c'est une conséquence assumée d'un autre
+// choix : la liste est chargée avec WithListSessionOnlyMeta(), qui ne rapatrie
+// pas les événements. Elle ne PEUT donc pas compter.
+//
+// Le champ existait quand même, et sortait `"message_count": 0` pour chaque
+// conversation de la liste — pas « zéro message », mais « je n'en sais rien »,
+// écrit comme un fait. Un zéro faux coûte plus cher qu'un champ absent : le
+// premier se croit, le second se remarque.
 type conversationSummary struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	MessageCount int       `json:"message_count"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // messageView est un message tel que le front l'affiche.
@@ -42,9 +50,18 @@ type messageView struct {
 	At      time.Time `json:"at"`
 }
 
+// conversationDetail ajoute ce que seule la vue « détail » peut savoir : elle
+// charge les événements, donc elle sait compter.
+//
+// MessageCount vaut len(Messages), pas len(sess.Events). Les deux différaient :
+// les événements incluent les appels d'outils et leurs réponses, si bien qu'un
+// simple aller-retour affichait « 4 messages » à côté d'un tableau qui en
+// contenait 2. Un champ nommé message_count posé à côté d'un tableau messages
+// doit compter ce tableau, sinon c'est un piège pour qui consomme l'API.
 type conversationDetail struct {
 	conversationSummary
-	Messages []messageView `json:"messages"`
+	MessageCount int           `json:"message_count"`
+	Messages     []messageView `json:"messages"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,15 +144,16 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	messages := messagesOf(sess)
 	writeJSON(w, http.StatusOK, conversationDetail{
 		conversationSummary: conversationSummary{
-			ID:           sess.ID,
-			Title:        titleOf(sess),
-			MessageCount: len(sess.Events),
-			CreatedAt:    sess.CreatedAt,
-			UpdatedAt:    sess.UpdatedAt,
+			ID:        sess.ID,
+			Title:     titleOf(sess),
+			CreatedAt: sess.CreatedAt,
+			UpdatedAt: sess.UpdatedAt,
 		},
-		Messages: messagesOf(sess),
+		MessageCount: len(messages),
+		Messages:     messages,
 	})
 }
 

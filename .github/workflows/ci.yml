@@ -177,6 +177,24 @@ jobs:
       - name: Matrice d'injections
         run: python audit/injections.py
 
+      # L'exigence de la spécification que rien ne rejouait : « on arrete la stack, on la
+      # relance, tout est encore la ». Ce script DETRUIT les conteneurs entre
+      # deux lectures — un simple restart ne prouverait rien, PostgreSQL ne
+      # bougeant pas.
+      #
+      # Il a besoin de compose, donc de la cle factice, pour les memes raisons
+      # que les deux etapes ci-dessous. Et il tourne en mode degrade ici : sans
+      # vrai modele, il verifie la survie de la conversation mais pas celle du
+      # CONTENU des messages. Il le DIT dans sa sortie plutot que de rendre un
+      # vert qui laisserait croire le contraire.
+      #
+      # En dernier des audits : il coupe la pile, donc rien ne doit suivre qui
+      # en ait besoin.
+      - name: Persistance à travers un arrêt complet
+        env:
+          OPENAI_API_KEY: ci-dummy-key
+        run: python audit/persistance.py
+
       # ⚠️ CES DEUX ETAPES ONT BESOIN DE LA CLE, ELLES AUSSI.
       #
       # docker-compose.yml utilise l'operateur :? sur OPENAI_API_KEY, qui fait

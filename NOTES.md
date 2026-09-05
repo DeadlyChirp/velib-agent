@@ -544,3 +544,45 @@ propres scripts d'audit le font par conception. Écrit dans le README plutôt qu
 laissé à découvrir. Le code ne bouge pas : forcer la clé IP casserait le produit
 dans sa propre topologie, et tant que `X-User-ID` n'est pas authentifié, aucune
 limite par identité n'est solide.
+
+---
+
+## La dernière exigence non testée, 5 septembre
+
+La spécification écrit : « l'historique est persisté en base : on arrête la stack, on la
+relance, tout est encore là ». C'était la seule de ses exigences qu'aucun test
+ne rejouait, et je l'avais écrit noir sur blanc dans le README comme une lacune
+assumée. Une vérification manuelle prouve que ça marchait ce jour-là, rien de
+plus.
+
+`audit/persistance.py` la rejoue : envoyer un message, `docker compose down`
+**sans** `-v`, relancer, relire. Le détail qui compte est le `down` : un
+`restart` de l'API ne prouverait rien, PostgreSQL n'ayant pas bougé. Le script
+vérifie d'ailleurs que l'API ne répond PLUS entre les deux — sans ça, un arrêt
+qui échouerait en silence ferait passer le test pour la pire des raisons, en
+relisant la donnée d'un processus jamais interrompu.
+
+**Deux modes, et il dit lequel il exécute.** La CI démarre la pile avec une clé
+factice : aucun appel au modèle n'y aboutit. Plutôt que d'exiger un vrai modèle
+et de rougir pour une raison sans rapport avec la persistance, le script bascule
+en mode dégradé — il vérifie la survie de la conversation, pas celle du contenu
+des messages — et l'**annonce** dans sa sortie. Un vert qui laisse croire qu'on
+a tout vérifié vaut moins qu'un vert qui dit ce qu'il n'a pas regardé.
+
+Vérifié dans les deux modes : 14 contrôles avec le modèle, 9 sans.
+
+**Et le test a trouvé un défaut en s'écrivant.** Il affichait côte à côte
+`message_count: 4` et un tableau `messages` de 2 entrées. `message_count` valait
+`len(sess.Events)` — les événements du framework, appels d'outils compris —
+pendant que `messages` n'expose que les tours affichables. Pire, la vue
+« liste » n'a pas les événements du tout, puisqu'elle charge les sessions en
+métadonnées seules par choix de performance : elle renvoyait donc
+`"message_count": 0` pour toutes les conversations. Pas « aucun message », mais
+« je n'en sais rien », écrit comme un fait.
+
+Le champ compte maintenant le tableau qu'il accompagne, et a disparu de la vue
+qui ne peut pas le calculer. Un zéro faux coûte plus cher qu'un champ absent :
+le premier se croit, le second se remarque.
+
+Aucun test ne les avait jamais comparés — il a fallu les imprimer l'un à côté
+de l'autre pour que ça saute aux yeux.
