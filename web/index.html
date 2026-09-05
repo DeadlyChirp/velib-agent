@@ -683,6 +683,11 @@
      streaming n'est jamais signalée à qui ne voit pas l'écran. -->
 <div id="live" class="sr-only" role="status" aria-live="polite"></div>
 
+<!-- Typographie française : source unique, partagée avec tracker.html. Un
+     <script src> plutôt qu'une copie dans chaque page — les deux copies
+     avaient déjà divergé. -->
+<script src="typographie.js"></script>
+
 <script>
 // L'API est servie par le même hôte via le proxy nginx : pas d'URL en dur,
 // donc rien à changer entre le poste de développement et le conteneur.
@@ -708,30 +713,6 @@ const SUGGESTIONS = [
   "Combien de vélos y a-t-il à la station Benjamin Godard ?",
   "Liste-moi toutes les stations vides."
 ];
-
-// ── Typographie française ───────────────────────────────────────────────────
-//
-// L'espace fine insécable avant « ? ! ; : » et dans les milliers est la règle
-// en français. Le modèle ne la produit pas, et « 1519 stations » ou un « ? »
-// collé se voient immédiatement à l'œil d'un lecteur français.
-//
-// Appliqué à L'AFFICHAGE seulement : la valeur envoyée à l'API et celle
-// stockée restent le texte brut. On ne réécrit jamais la donnée pour des
-// raisons de mise en forme.
-const FINE = " "; // espace fine insécable
-const NBSP = " "; // espace insécable
-
-function typographieFR(s) {
-  return String(s)
-    // Espace fine avant la ponctuation haute, en absorbant celle déjà présente.
-    .replace(/[   ]*([?!;:])/g, FINE + "$1")
-    // Séparateur de milliers sur les entiers nus de 4 à 9 chiffres. Borné
-    // volontairement : au-delà on est sur un identifiant, pas une quantité.
-    .replace(/\b\d{4,9}\b/g, (m) => m.replace(/\B(?=(\d{3})+$)/g, FINE))
-    // Guillemets français collés à leur contenu : « comme ceci ».
-    .replace(/«[   ]*/g, "«" + NBSP)
-    .replace(/[   ]*»/g, NBSP + "»");
-}
 
 // ── Utilitaires ─────────────────────────────────────────────────────────────
 

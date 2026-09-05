@@ -359,6 +359,33 @@ plutôt que la vraie API — on ne peut pas demander à Smovengo de renvoyer un 
 une erreur et non un parc vide, l'annulation qui remonte immédiatement, et le
 délai de garde sur une source qui accepte la connexion puis se tait.
 
+### Une règle, une seule source
+
+La typographie française avait été écrite dans `index.html` puis **recopiée**
+dans `tracker.html`, pour que les deux pages écrivent « 1 519 » pareil. Les deux
+copies avaient déjà divergé :
+
+| entrée | `index.html` | `tracker.html` |
+|---|---|---|
+| `« Châtelet »` | `«·Châtelet·»` | `« Châtelet »` |
+
+Le tracker n'avait jamais reçu la règle des guillemets, et appliquait les deux
+autres dans l'ordre inverse. Deux pages qui affichent le même chiffre doivent
+l'écrire pareil : c'était tout l'intérêt du travail, et la duplication
+l'annulait en silence.
+
+Extrait dans `web/typographie.js`, chargé par les deux pages avec un
+`<script src>` — du HTML de 1995, zéro outillage, et l'image reste un nginx qui
+sert des fichiers statiques. Deux vérifications empêchent la copie de revenir :
+chaque page doit charger la source unique, et aucune ne doit redéfinir la règle.
+
+L'extraction a failli casser le front sans rien casser à la construction : le
+`Dockerfile` du web copie les fichiers **un par un**, et j'avais oublié d'y
+ajouter le nouveau. Les pages se seraient chargées, le script aurait renvoyé
+404, `typographieFR` aurait été indéfini. La copie un par un reste délibérée —
+un `COPY .` emporterait aussi le fichier de test, qui n'a rien à faire dans une
+image de production.
+
 ### Le front aussi, sans rien installer
 
 `web/rendu_test.mjs` — 28 vérifications, aucune dépendance, aucune étape de

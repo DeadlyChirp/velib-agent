@@ -150,22 +150,15 @@
 
 </div>
 
+<script src="typographie.js"></script>
+
 <script>
 const $ = (id) => document.getElementById(id);
 
-// Même règle typographique que la page de conversation : espace fine insécable
-// dans les milliers et avant la ponctuation haute. « 1 519 », jamais « 1519 ».
-// Deux pages qui affichent les mêmes chiffres doivent les écrire pareil.
-const FINE = " ";
-
-function typo(s) {
-  return String(s)
-    .replace(/\b\d{4,9}\b/g, function (m) {
-      return m.replace(/\B(?=(\d{3})+$)/g, FINE);
-    })
-    .replace(/[ \u00a0\u202f]*([?!;:])/g, FINE + "$1");
-}
-
+// typo() est un alias local vers la source unique chargee ci-dessus. Les deux
+// pages appliquent donc EXACTEMENT la meme regle : c'etait l'intention depuis le
+// debut, la duplication l'annulait en silence.
+const typo = typographieFR;
 
 function card(label, value, note, tone) {
   const d = document.createElement("div");

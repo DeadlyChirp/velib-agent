@@ -99,10 +99,14 @@ function extraire(nom) {
 
 const FINE = " ";
 const NBSP = " ";
+// typographie.js est la source UNIQUE, partagée par les deux pages. On la lit
+// telle quelle plutôt que de l'extraire d'index.html : c'est désormais un
+// fichier à part entière, et le tester ici couvre les deux pages d'un coup.
+const typoSource = readFileSync(join(ici, "typographie.js"), "utf8");
+
 const contexte = {};
 const code =
-  `const FINE = ${JSON.stringify(FINE)}; const NBSP = ${JSON.stringify(NBSP)};\n` +
-  extraire("typographieFR") + "\n" +
+  typoSource.replace(/if \(typeof module[\s\S]*$/, "") + "\n" +
   extraire("remplirAvecEmphase") + "\n" +
   extraire("rendreReponse") + "\n" +
   "Object.assign(cible, { typographieFR, remplirAvecEmphase, rendreReponse });";
@@ -297,6 +301,34 @@ for (const interdit of ["innerHTML", "outerHTML", "insertAdjacentHTML", "documen
     `aucune ecriture de HTML brut : ${interdit}`,
     lignes.length === 0,
     `trouve ligne(s) ${lignes.map(([n]) => n).join(", ")}`
+  );
+}
+
+// ── Une seule source pour la typographie ────────────────────────────────────
+//
+// La regle a d'abord ete recopiee dans tracker.html pour que les deux pages
+// ecrivent « 1 519 » pareil. Les deux copies avaient deja diverge : celle du
+// tracker n'avait jamais recu la regle des guillemets, et appliquait les autres
+// dans l'ordre inverse. Mesure avant correction :
+//
+//     entree           index.html        tracker.html
+//     « Chatelet »     «·Chatelet·»      « Chatelet »
+//
+// Deux pages qui affichent le meme chiffre doivent l'ecrire pareil : c'etait
+// tout l'interet du travail, et la duplication l'annulait en silence.
+
+const tracker = readFileSync(join(ici, "tracker.html"), "utf8");
+
+for (const [nom, page] of [["index.html", source], ["tracker.html", tracker]]) {
+  affirme(
+    `${nom} charge la source unique`,
+    page.includes('src="typographie.js"'),
+    "la page n'inclut pas typographie.js"
+  );
+  affirme(
+    `${nom} ne redefinit pas la regle localement`,
+    !/function\s+typographieFR\s*\(/.test(page),
+    "une copie locale de typographieFR a ete reintroduite"
   );
 }
 
