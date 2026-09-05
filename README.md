@@ -186,6 +186,25 @@ justement eux qui empêchent le modèle de sur-interpréter. Le comptage porte
 maintenant sur la liste complète des éligibles, et
 `TestRankSignaleLesExAequo` échoue si la note redevient muette.
 
+Il a fallu une **seconde** correction pour que ça serve à quelque chose. La
+description de l'outil disait « lire le champ note » — instruction jamais
+exercée, puisque la note n'arrivait jamais. Une fois émise, le modèle la lisait
+et l'avalait. Mesuré sur la même question, avant et après avoir écrit
+« RESTITUER » au lieu de « lire » :
+
+```
+avant   Les 3 stations avec le moins de vélos (0 vélo) sont : …
+        [rien d'autre : trois noms sur 82 ex aequo, présentés comme un palmarès]
+
+après   Les 3 stations avec le moins de vélos (0 vélo) sont : …
+        79 autres stations affichent également 0 vélo disponible.
+        22 stations hors service sont exclues de ce classement.
+```
+
+Un signal que le modèle reçoit et n'utilise pas ne vaut pas mieux que pas de
+signal du tout. Le calcul juste ne suffit pas : il faut aussi dire au modèle
+quoi en faire.
+
 ### 4. La recherche renvoie des candidats, jamais « la » station
 
 Mesuré sur le parc réel : **532 stations sur 1 519 portent des accents**, trois

@@ -499,3 +499,17 @@ Le vérificateur de cohérence est passé de 12 à 21 contrôles : il vérifie
 désormais le nombre de cas, la couverture globale avec son périmètre, le compte
 du rendu front, et les mêmes chiffres **des deux côtés**, README et NOTES —
 c'est là que trois valeurs fausses s'étaient logées.
+
+**Et le correctif ne servait à rien sans un second.** Une fois la note d'ex
+aequo enfin émise, le modèle la lisait et l'avalait : la description de l'outil
+disait « lire le champ note », une instruction jamais exercée puisque la note
+n'arrivait jamais. Remplacé par « le champ note doit être RESTITUÉ à
+l'utilisateur ». Mesuré sur la même question, contre la pile réelle :
+
+    avant   trois noms sur 82 ex aequo, présentés comme un palmarès
+    après   « 79 autres stations affichent également 0 vélo disponible.
+              22 stations hors service sont exclues de ce classement. »
+
+Un signal que le modèle reçoit et n'utilise pas ne vaut pas mieux qu'un signal
+absent. Calculer juste ne suffit pas, il faut dire au modèle quoi en faire — et
+ça ne se voit qu'en regardant la réponse finale, pas la sortie de l'outil.

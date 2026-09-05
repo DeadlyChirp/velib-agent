@@ -239,8 +239,12 @@ func (r *Registry) rankStations() tool.Tool {
 				"sans pouvoir reprendre un vélo. Elles restent incluses pour le critère "+
 				"capacity qui décrit la taille physique. "+
 				"Le serveur borne la réponse à 20 stations maximum quelle que soit la "+
-				"valeur demandée. Lire le champ note : il signale les exclusions et les "+
-				"ex aequo départagés arbitrairement. "+
+				"valeur demandée. "+
+				"Le champ note doit être RESTITUÉ à l'utilisateur, pas seulement lu : il "+
+				"porte les exclusions et surtout les ex aequo. Quand il annonce des ex "+
+				"aequo, dire explicitement que d'autres stations ont la même valeur et "+
+				"que l'ordre entre elles est arbitraire — sinon une liste de stations "+
+				"toutes à égalité est présentée comme un classement, ce qui est faux. "+
 				"Ne pas utiliser cet outil pour obtenir la liste complète du parc : elle "+
 				"n'est pas disponible, et c'est volontaire."),
 	)
