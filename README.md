@@ -56,6 +56,7 @@ d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
 make test              # 94 tests, 149 cas, sans réseau ni base
+make test-front        # 28 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-live         # contre la vraie API Vélib'
 make reset             # arrête la pile ET efface les conversations
@@ -355,6 +356,30 @@ plutôt que la vraie API — on ne peut pas demander à Smovengo de renvoyer un 
 404 (insister ne répare pas une URL fausse), le JSON tronqué qui doit produire
 une erreur et non un parc vide, l'annulation qui remonte immédiatement, et le
 délai de garde sur une source qui accepte la connexion puis se tait.
+
+### Le front aussi, sans rien installer
+
+`web/rendu_test.mjs` — 28 vérifications, aucune dépendance, aucune étape de
+build. Le projet n'a ni `node_modules` ni bundler, et ce n'est pas un oubli :
+c'est ce qui permet à l'image finale d'être un nginx qui sert un fichier
+statique. Plutôt qu'installer un moteur de DOM, le test en écrit une doublure de
+trente lignes qui n'implémente que ce que le code utilise.
+
+Les fonctions sont **extraites de `index.html`** au lieu d'être recopiées : un
+test qui vérifie une copie du code ne vérifie rien.
+
+Ce qui compte le plus s'y trouve : **six charges d'injection réelles** —
+`<script>`, `<img onerror>`, `<svg/onload>` — passées dans le rendu, et aucune
+ne produit d'élément. Le texte affiché vient d'un modèle de langage, donc d'une
+source qu'on ne contrôle pas. Un seul `innerHTML` au lieu d'un `textContent`
+transformerait une réponse en vecteur d'injection, et le test vérifie aussi que
+ce mot n'apparaît nulle part dans le fichier.
+
+Découverte au passage : la typographie française insère une espace fine avant la
+ponctuation haute, ce qui transforme `javascript:alert(1)` en
+`javascript :alert(1)` — un URI qu'un navigateur ne reconnaît plus. Effet de
+bord heureux, noté comme tel dans le test : c'est un **accident**, pas une
+défense, et la vraie défense reste de ne jamais écrire de HTML brut.
 
 **Sur les 18 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
 les tests de ce paquet interrogent le binaire conteneurisé par HTTP, donc Go ne

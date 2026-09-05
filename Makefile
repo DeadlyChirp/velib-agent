@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make help` liste tout.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs test test-norace test-race-docker test-live test-integration cover fmt vet check reset
+.PHONY: help up down logs test test-front test-norace test-race-docker test-live test-integration cover fmt vet check reset
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -26,6 +26,9 @@ test: ## Tests unitaires, avec détecteur de compétition
 	# test-race-docker qui fait tourner le detecteur dans le conteneur.
 	cd api && go test -race -count=1 ./...
 
+test-front: ## Tests du rendu front (Node, sans dependance)
+	node web/rendu_test.mjs
+
 test-norace: ## Tests unitaires sans detecteur (machine sans compilateur C)
 	cd api && go test -count=1 ./...
 
@@ -48,4 +51,4 @@ fmt: ## Formate le code
 vet: ## Analyse statique
 	cd api && go vet ./...
 
-check: fmt vet test ## Formatage, analyse statique et tests
+check: fmt vet test test-front ## Formatage, analyse statique et tests
