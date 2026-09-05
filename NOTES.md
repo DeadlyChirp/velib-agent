@@ -513,3 +513,34 @@ l'utilisateur ». Mesuré sur la même question, contre la pile réelle :
 Un signal que le modèle reçoit et n'utilise pas ne vaut pas mieux qu'un signal
 absent. Calculer juste ne suffit pas, il faut dire au modèle quoi en faire — et
 ça ne se voit qu'en regardant la réponse finale, pas la sortie de l'outil.
+
+**Le code mort exporté, que staticcheck ne voit pas.** Trois symboles sans
+appelant : `agent.ToolNames`, dont le commentaire promettait un usage par la
+route de santé qui ne l'appelle jamais ; le champ `log` de `agent.Service`,
+affecté et jamais lu ; et `velib.Search`, un enrobage de `searchTop` que seuls
+les bancs empruntaient — ils mesuraient donc un chemin que la production ne
+prend pas. Supprimés, les bancs pointés sur le vrai chemin. La couverture de
+`velib` est montée de 88 à 90 % sans qu'un test soit ajouté : c'est ce que
+signifie retirer du code que personne n'exécute.
+
+En déplaçant `Search`, son bloc de documentation s'est retrouvé collé à celui de
+`searchTop` — exactement le défaut godoc corrigé une heure plus tôt dans
+`chat.go`. Fusionné plutôt que supprimé : le raisonnement qu'il porte, pourquoi
+la recherche rend des candidats et jamais « la » station, vaut d'être gardé.
+
+**Deux promesses qui ne tenaient pas hors du chemin nominal.** `.env.example`
+annonce `VELIB_INFORMATION_URL` et `VELIB_STATUS_URL` surchargeables — absentes
+du bloc `environment` du compose, elles ne l'étaient que hors Docker,
+c'est-à-dire nulle part dans le parcours proposé. Et le README nommait
+`TestToolOutputsStaySmall` comme garde-fou des tailles publiées, alors qu'il
+tourne sur huit stations : le vrai garde-fou est
+`TestTailleDeSortieIndependanteDuNombreDeStations`, qui rejoue les quatre outils
+à 1 519 000 stations.
+
+**La limite de débit, ce qu'elle ne fait pas.** Derrière le nginx du compose,
+tous les navigateurs partagent l'IP du conteneur : sans `X-User-ID`, la limite
+est de fait globale. Et un `X-User-ID` qui tourne la défait entièrement — mes
+propres scripts d'audit le font par conception. Écrit dans le README plutôt que
+laissé à découvrir. Le code ne bouge pas : forcer la clé IP casserait le produit
+dans sa propre topologie, et tant que `X-User-ID` n'est pas authentifié, aucune
+limite par identité n'est solide.

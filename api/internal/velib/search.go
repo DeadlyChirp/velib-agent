@@ -54,7 +54,7 @@ type Match struct {
 	Score int
 }
 
-// Search cherche des stations par nom, de façon tolérante.
+// searchTop cherche des stations par nom, de façon tolérante.
 //
 // Conception délibérée : cette fonction renvoie une LISTE de candidats, jamais
 // « la » station. Trois raisons mesurées sur les données réelles :
@@ -68,16 +68,8 @@ type Match struct {
 //
 // Choisir arbitrairement parmi des candidats, c'est répondre faux avec
 // assurance. L'agent doit pouvoir demander lequel.
-func Search(stations []Station, query string, limit int) []Match {
-	q := normalize(query)
-	if q == "" {
-		return nil
-	}
-	matches, _ := searchTop(stations, query, limit)
-	return matches
-}
-
-// searchTop rend les `limit` meilleures correspondances ET le nombre TOTAL de
+//
+// Elle rend les `limit` meilleures correspondances ET le nombre TOTAL de
 // correspondances, sans jamais matérialiser ni trier les autres.
 //
 // C'est exactement ce dont FindStations a besoin : un total exact à annoncer, et

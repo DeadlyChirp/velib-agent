@@ -42,7 +42,7 @@ func BenchmarkEchelleSearch(b *testing.B) {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = Search(snap.Stations, "Quartier 42", 5)
+				_, _ = searchTop(snap.Stations, "Quartier 42", 5)
 			}
 		})
 	}

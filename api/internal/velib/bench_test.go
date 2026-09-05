@@ -26,7 +26,7 @@ func BenchmarkSearchPrecalcule(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = Search(st, "Quartier 7", 5)
+		_, _ = searchTop(st, "Quartier 7", 5)
 	}
 }
 
@@ -35,7 +35,7 @@ func BenchmarkSearchRepli(b *testing.B) {
 	st := benchStations(1519)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = Search(st, "Quartier 7", 5)
+		_, _ = searchTop(st, "Quartier 7", 5)
 	}
 }
 

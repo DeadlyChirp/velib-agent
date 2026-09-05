@@ -108,8 +108,14 @@ parc brut sérialisé : 446 157 octets
   find_station          240 octets   (réduction 1858x)
 ```
 
-Un test (`TestToolOutputsStaySmall`) échoue si une sortie dépasse cette borne :
-l'invariant est protégé, il ne se dégradera pas discrètement.
+Deux tests protègent cette borne, et c'est le second qui compte.
+`TestToolOutputsStaySmall` vérifie le plafond de 4 Ko sur la petite fixture —
+utile pour attraper un champ verbeux ajouté par distraction, mais il ne prouve
+rien sur la taille du parc. C'est
+`TestTailleDeSortieIndependanteDuNombreDeStations` qui tient l'invariant réel :
+il rejoue les quatre outils à **1 519, 151 900 et 1 519 000 stations** et exige
+que la sortie ne bouge pas. Un parc mille fois plus gros, la même réponse au
+modèle — c'est ça, la propriété, pas un plafond en octets.
 
 ### 2. « Toutes les stations vides » renvoie un compte, pas une liste
 
@@ -429,7 +435,7 @@ les conversations d'Alice.
 | `config` | 96 % | rédaction des secrets, défauts, validation |
 | `observability` | 96 % | division par zéro, borne mémoire, accès concurrent |
 | `tools` | 90 % | schémas et bornes des sorties |
-| `velib` | 88 % | agrégations, cache, jointure, **client HTTP** |
+| `velib` | 90 % | agrégations, cache, jointure, **client HTTP** |
 | `httpapi` | 23 % | débit, concurrence, traduction des erreurs, titres |
 | `agent` | 11 % | compatibilité fournisseur, cloisonnement des clés |
 
@@ -759,6 +765,18 @@ n'est **pas** lu, parce qu'il se falsifie d'une ligne et donnerait une clé
 différente à chaque requête. Ce n'est pas une protection contre une attaque
 distribuée, qui se traite en amont : c'est le garde-fou qui empêche un client,
 malveillant ou simplement buggé, de faire tomber le service pour les autres.
+
+**Deux limites que je préfère écrire que laisser découvrir.** Derrière le nginx
+du compose, tous les navigateurs arrivent avec l'IP du conteneur : sans
+`X-User-ID`, la limite devient de fait **globale**. Et avec un `X-User-ID` qui
+tourne à chaque requête, elle ne s'applique plus du tout — mes propres scripts
+d'audit le font, par conception, pour ne pas se limiter eux-mêmes.
+
+Je n'y touche pas, et c'est un choix. Forcer la clé IP casserait le produit dans
+sa propre topologie, et `X-User-ID` n'est pas authentifié : tant qu'il ne l'est
+pas, aucune limite par identité n'est solide. La vraie réponse est
+l'authentification, [listée plus bas](#avec-plus-de-temps) — pas un
+contournement qui donnerait l'illusion d'une défense.
 
 ---
 

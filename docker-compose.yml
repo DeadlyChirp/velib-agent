@@ -52,6 +52,13 @@ services:
       # Vide = paramètre non envoyé, car il n'existe pas chez tous les fournisseurs.
       REASONING_EFFORT: "${REASONING_EFFORT:-}"
 
+      # Les deux flux de données. Transmis explicitement parce que
+      # .env.example les annonce surchargeables — sans ces deux lignes, la
+      # promesse ne tenait que hors Docker, c'est-à-dire nulle part dans le
+      # chemin nominal. Vides, le code retombe sur les URL officielles.
+      VELIB_INFORMATION_URL: "${VELIB_INFORMATION_URL:-}"
+      VELIB_STATUS_URL: "${VELIB_STATUS_URL:-}"
+
       VELIB_CACHE_TTL: "${VELIB_CACHE_TTL:-60s}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       LOG_FORMAT: "${LOG_FORMAT:-text}"

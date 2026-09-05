@@ -20,7 +20,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessionpg "trpc.group/trpc-go/trpc-agent-go/session/postgres"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 
 	"velib-agent/internal/config"
 	"velib-agent/internal/tools"
@@ -38,7 +37,6 @@ const AppName = "velib-agent"
 type Service struct {
 	Runner   runner.Runner
 	Sessions session.Service
-	log      *slog.Logger
 }
 
 // New construit le service complet.
@@ -125,7 +123,7 @@ func New(cfg config.Config, reg *tools.Registry, log *slog.Logger) (*Service, er
 		"streaming", stream)
 	log.Info("outils enregistrés\n" + tools.Describe(registered))
 
-	return &Service{Runner: r, Sessions: sessions, log: log}, nil
+	return &Service{Runner: r, Sessions: sessions}, nil
 }
 
 // Close libère ce que le service possède.
@@ -134,15 +132,6 @@ func (s *Service) Close() error {
 		return s.Runner.Close()
 	}
 	return nil
-}
-
-// ToolNames rend la liste des outils, pour la route de santé.
-func ToolNames(ts []tool.Tool) []string {
-	out := make([]string, 0, len(ts))
-	for _, t := range ts {
-		out = append(out, t.Declaration().Name)
-	}
-	return out
 }
 
 // SessionKey construit une clé de session.
