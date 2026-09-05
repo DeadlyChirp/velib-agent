@@ -55,7 +55,7 @@ retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
 d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
-make test              # 100 tests, 155 cas, sans réseau ni base
+make test              # 101 tests, 156 cas, sans réseau ni base
 make test-front        # 28 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-live         # contre la vraie API Vélib'
@@ -213,6 +213,47 @@ contrairement à l'attente.
 Garde-fou : au-delà de dix fois le TTL, on redevient bloquant. Si la source est
 tombée depuis dix minutes, l'appelant doit l'apprendre, pas recevoir des chiffres
 d'un quart d'heure comme s'ils étaient frais.
+
+### 5 bis. Ne pas savoir est un résultat, pas une panne
+
+Le cache absorbe la panne courte. Reste ce qu'il ne peut pas absorber, et c'est
+là que se joue le comportement de l'agent. Il y a **quatre façons de ne pas
+savoir**, et chacune a sa réponse — une seule réponse générique pour les quatre
+finit toujours par produire un chiffre inventé.
+
+**La source est injoignable, cache compris.** L'outil ne renvoie jamais l'erreur
+Go telle quelle. Il renvoie une structure à deux champs :
+
+```json
+{ "error":  "les données Vélib' sont momentanément indisponibles",
+  "advice": "informer l'utilisateur que la source est injoignable et
+             proposer de réessayer, ne pas inventer de chiffres" }
+```
+
+Le champ `advice` est le point important. Un modèle qui reçoit
+`dial tcp: i/o timeout` sait qu'il a échoué, mais pas quoi faire de cet échec,
+et la pente naturelle est de meubler. Lui dire quoi faire coûte deux lignes.
+
+**La station n'existe pas.** `total_matches` vaut 0, et la description de
+l'outil dit quoi en faire : le dire et proposer une reformulation. Pas de
+correspondance approximative silencieuse — « Benjamin Godart » ne doit pas
+devenir « Benjamin Godard » sans que l'utilisateur l'apprenne.
+
+**La question est ambiguë.** La plus facile à rater, parce qu'elle ne ressemble
+pas à une erreur. « Gare de Lyon » correspond à trois stations distinctes. Un
+agent qui en choisit une donne une réponse fausse avec l'aplomb d'une réponse
+juste, le pire des deux mondes. L'outil pose donc `ambiguous`, et la consigne
+est de **demander**, pas de trancher. Même logique pour `truncated` : si la
+station visée peut être hors de la liste montrée, on le dit.
+
+**La question est hors périmètre.** Refus bref qui rappelle le domaine, sans
+exception « juste cette fois » — détaillé plus bas, c'est autant un sujet de
+sécurité que de comportement.
+
+Un chemin d'échec qu'on n'exécute jamais est une hypothèse, pas une garantie :
+`TestToolsFailGracefullyForTheModel` branche une source qui échoue et vérifie,
+pour les quatre outils, qu'il sort un `error` **et** un `advice` interdisant
+d'inventer — et non une sortie vide qu'un modèle lirait comme « zéro vélo ».
 
 ### 6. Les sessions PostgreSQL viennent du framework
 
@@ -376,8 +417,14 @@ les a fait bouger de plusieurs points à tests strictement identiques,
 l'instrumentation ne comptant pas les mêmes instructions. Une raison de plus de
 ne pas en faire un objectif chiffré.
 
-**100 fonctions de test, 155 cas**, 59 % de couverture globale — contre 32 %
-avant cette passe.
+**101 fonctions de test, 156 cas**, 61 % de couverture sur `internal/` — contre
+32 % avant cette passe.
+
+Le périmètre est précisé parce qu'il change le chiffre : 61 % sur `internal/`,
+55 % en comptant `cmd/api`, dont le `main` n'est couvert par aucun test
+unitaire. Un pourcentage de couverture sans son périmètre est un chiffre qu'on
+peut faire dire ce qu'on veut, et celui-ci avait discrètement dérivé de 59 à 61
+avant que `audit/coherence_doc.py` ne le vérifie aussi.
 
 La frontière réseau mérite une mention. `client.go` était à **0 %** : c'est
 pourtant là que vivent les vrais bugs, parce que c'est le seul endroit qui

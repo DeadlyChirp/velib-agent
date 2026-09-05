@@ -402,3 +402,44 @@ réponse était juste. *Un audit qui sous-estime le service trompe autant qu'un
 audit qui le surestime.*
 
 **Et le vérificateur de cohérence avait lui-même un bogue en naissant.**
+
+---
+
+## Relecture de la spécification, 5 septembre
+
+Relire la spécification après coup plutôt qu'avant a payé : il restait un défaut sur une
+**exigence littérale**.
+
+**« Un `.env.example` listant toutes les variables attendues » — trois
+manquaient.** `API_ADDR`, `VELIB_INFORMATION_URL` et `VELIB_STATUS_URL` étaient
+lues par `config.go` sans apparaître nulle part. Trois variables qu'on ne peut
+pas découvrir sans lire le code, dans le fichier dont c'est précisément le rôle
+d'éviter cette lecture. Le fichier avait aussi accumulé un doublon et
+recommandait encore un modèle Groq retiré du catalogue.
+
+Corriger ne suffisait pas : l'oubli reviendrait à la prochaine variable ajoutée.
+`TestEnvExempleListeToutesLesVariables` lit `config.go`, lit `.env.example`, et
+compare **dans les deux sens** — une variable lue mais non documentée échoue, une
+variable documentée que plus personne ne lit échoue aussi, parce qu'elle envoie
+le lecteur configurer quelque chose sans effet. Vérifié en le cassant exprès
+avant de le croire.
+
+**Un critère de qualité n'avait aucune section pour le défendre.** La spécification
+annonce regarder « le comportement de l'agent quand il ne sait pas, ou quand un
+appel échoue ». Le code le traitait bien — `ToolError` avec sa consigne,
+`ambiguous`, `total_matches` à zéro — et un test le tenait. Mais le README, la
+partie qu'ils disent regarder en premier, n'en parlait nulle part. Le travail
+était fait, la défense manquait : section 5 bis.
+
+**La couverture globale annoncée avait dérivé sans que rien ne le voie.** Le
+vérificateur contrôlait les six couvertures par paquet et pas le total : 59 %
+annoncé, 61 % réel. Il vérifie maintenant les deux, et le README publie le
+**périmètre** avec le chiffre — 61 % sur `internal/`, 55 % en comptant `cmd/api`
+dont le `main` n'a aucun test. Un pourcentage sans son périmètre se fait dire ce
+qu'on veut.
+
+**Et le vérificateur a re-planté sur lui-même.** Ajouter le comptage des
+sous-tests l'obligeait à lire une sortie verbeuse : Python la décodait avec la
+locale Windows et mourait sur le premier « d'un message de test. Deuxième bogue
+de naissance pour ce script — il a en échange attrapé mes deux chiffres faux dès
+la première exécution, dont un que j'introduisais moi-même en ajoutant un test.

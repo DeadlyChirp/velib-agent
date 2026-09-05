@@ -49,8 +49,13 @@ def cherche(texte, motif):
 
 
 def go(*args):
+    # encoding explicite : sans lui, Python decode avec la locale Windows
+    # (cp1252) et la sortie verbeuse plante sur le premier « ou accent d'un
+    # message de test. errors="replace" plutot que strict : on cherche des
+    # lignes PASS, pas a relire la prose.
     return subprocess.run(["go", *args], cwd=RACINE / "api",
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True, timeout=600,
+                          encoding="utf-8", errors="replace")
 
 
 print("=== Nombre de tests ===")
@@ -73,6 +78,45 @@ for paquet in ["config", "observability", "tools", "velib", "httpapi", "agent"]:
     annonce = cherche(README, r"\| `" + paquet + r"` \| (\d+) %")
     # Une tolerance d'un point : le README arrondit, la mesure bouge d'un test.
     compare("couverture " + paquet, annonce, reel, tolerance=1)
+
+print()
+print("=== Nombre de cas (fonctions + sous-tests) ===")
+# Un test en table compte pour une fonction et N cas. Le README annonce les
+# deux : le second se derive en comptant les lignes PASS d'une execution
+# verbeuse, sous-tests inclus.
+verbeux = go("test", "./...", "-v", "-count=1").stdout
+cas_reels = len([l for l in verbeux.splitlines() if l.lstrip().startswith("--- PASS")])
+compare("cas de test", cherche(README, r"(\d+) cas\*\*"), cas_reels)
+compare("cas annonces dans make test",
+        cherche(README, r"make test\s+#\s*\d+ tests, (\d+) cas"), cas_reels)
+
+print()
+print("=== Couverture globale ===")
+# Ce chiffre-la avait derive de deux points sans que personne le voie : la
+# couverture par paquet etait verifiee, le total ne l'etait pas.
+#
+# Le perimetre compte. `./...` inclut cmd/api, dont le main n'a aucun test
+# unitaire, et fait perdre six points. Le README annonce internal/ : on mesure
+# donc internal/, et on verifie AUSSI le chiffre tout compris qu'il cite.
+for perimetre, cible, motif in [
+    ("internal/", "./internal/...", r"(\d+) % de couverture sur `internal/`"),
+    ("tout compris", "./...", r"(\d+) % en comptant `cmd/api`"),
+]:
+    r = go("test", cible, "-coverprofile=" + str(RACINE / "api" / ".cover.tmp"),
+           "-count=1")
+    if r.returncode != 0:
+        ecarts.append("couverture %s : les tests echouent" % perimetre)
+        continue
+    f = subprocess.run(["go", "tool", "cover", "-func=.cover.tmp"],
+                       cwd=RACINE / "api", capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    m = re.search(r"([\d.]+)%\s*$", f.stdout.strip())
+    if not m:
+        ecarts.append("couverture %s : impossible a mesurer" % perimetre)
+        continue
+    compare("couverture " + perimetre, cherche(README, motif),
+            round(float(m.group(1))), tolerance=1)
+(RACINE / "api" / ".cover.tmp").unlink(missing_ok=True)
 
 print()
 print("=== Comptes d'audit ===")
