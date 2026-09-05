@@ -263,3 +263,142 @@ De même, la lecture de fichiers, de PDF et d'images a été écartée malgré l
 tentation : un agent de stations Vélib' qui lit des images n'a pas de sens
 produit, et l'ajouter contredirait la règle de périmètre qui bloque justement
 les demandes hors sujet.
+
+---
+
+## 6. La passe de durcissement
+
+Le projet était complet et vert à la fin de la section 5. Tout ce qui suit a été
+trouvé en cherchant les défauts **là où aucun test ne regardait** : le chemin du
+relecteur, la concurrence, l'arrêt, la CI, et la machine elle-même.
+
+### Le parcours que personne n'avait fait
+
+J'avais tout vérifié sauf ce qu'un relecteur fait en premier : **cloner et
+lancer**. Fait sur un clone frais, ports décalés. Trois défauts, tous dans le
+chemin qu'un développeur ne prend jamais parce qu'il a déjà tout installé.
+
+| Défaut | Pourquoi invisible |
+|---|---|
+| `.env.example` livrait `REASONING_EFFORT=low` avec `gpt-4o-mini` | Ce champ n'existe que chez les modèles raisonneurs : la config **par défaut** échouait au premier message |
+| `make test` échoue sans compilateur C | `-race` exige cgo, et l'erreur parle de cgo sans mentionner le compilateur |
+| `make` absent sous Windows | Le README ne donnait que les cibles make |
+
+### La panne à 200 clients
+
+Tout avait été mesuré en série. En concurrence, `FATAL: sorry, too many clients
+already` : le service de sessions du framework ouvre sa base avec `sql.Open`
+sans jamais appeler `SetMaxOpenConns`, et `database/sql` autorise alors un
+nombre illimité de connexions.
+
+Le framework n'expose ni le `*sql.DB` ni d'option de pool. On ne peut pas
+corriger la cause, seulement empêcher d'y arriver : 64 requêtes en vol, attente
+brève, puis 503 avec `Retry-After`.
+
+| Clients | Avant | Après |
+|---|---|---|
+| 200 | 685 req/s · **343 erreurs** | **920 req/s · 0 erreur** |
+| 400 | 711 req/s · **716 erreurs** | **924 req/s · 0 erreur** |
+| 1 000 | — | **949 req/s · 0 erreur** |
+
+**Borner la concurrence a augmenté le débit de 30 %.** Contre-intuitif, et
+c'est précisément pour ça qu'il fallait le mesurer.
+
+### Une promesse cassée par un fichier de configuration
+
+`main.go` accorde 25 secondes aux conversations en cours pour se terminer, avec
+un commentaire qui explique pourquoi. Docker envoie SIGKILL au bout de **10**.
+
+Le défaut ne se voyait que sur les tours de plus de dix secondes — mesurés
+jusqu'à 26 s. Invisible en développement, visible le jour d'une mise en
+production en pleine journée. Un test relit désormais les deux fichiers.
+
+### La CI échouait sur chaque commit, et je ne l'avais jamais regardée
+
+C'est l'erreur de méthode la plus embarrassante du projet. J'ajoutais des étapes
+sans vérifier qu'elles passaient. **Tous les tests étaient verts** ; seule
+l'étape de ménage échouait :
+
+```
+required variable OPENAI_API_KEY is missing a value
+```
+
+`docker-compose.yml` utilise l'opérateur `:?`, qui fait échouer *toute* commande
+compose — y compris `logs` et `down`, qui ne démarrent rien. Le piège était
+documenté en toutes lettres dix lignes plus haut, pour l'étape de construction,
+et je l'ai quand même réintroduit.
+
+*Un rouge de fin de job qui ne dit rien sur le code est exactement le genre de
+rouge qu'on apprend à ignorer — et c'est ainsi qu'on rate le vrai.*
+
+### La duplication que j'avais moi-même créée
+
+En portant la typographie française sur le tableau de bord, je l'avais
+**recopiée** au lieu de la partager. Les deux copies avaient déjà divergé :
+
+| entrée | `index.html` | `tracker.html` |
+|---|---|---|
+| `« Châtelet »` | `«·Châtelet·»` | `« Châtelet »` |
+
+Deux pages qui affichent le même chiffre doivent l'écrire pareil : c'était tout
+l'intérêt du travail, et la duplication l'annulait en silence. Extrait dans un
+fichier unique chargé par un `<script src>` — et l'extraction a failli casser le
+front sans rien casser à la construction, parce que le Dockerfile copie les
+fichiers un par un et que j'avais oublié le nouveau.
+
+### La machine, pas le code
+
+Deux problèmes qui n'étaient pas des défauts du projet mais qui le bloquaient.
+
+**OneDrive cassait `docker build`.** Tag de point d'analyse `0x9000a01a`, le
+marqueur « Fichiers à la demande » : 51 fichiers sur 61 le portaient, et
+BuildKit refuse de lire un Dockerfile qui en est un. L'attribut survit au
+déplacement — il a fallu recloner. Vérifié : le même fichier hors OneDrive se
+construit sans problème.
+
+**Les fins de ligne rendaient `make check` inutilisable.** `core.autocrlf=true`
+convertit en CRLF à l'extraction, et `gofmt` signalait les 38 fichiers Go. La CI
+ne le voyait pas : elle tourne sur Linux. *Un défaut qui ne se manifeste que sur
+la machine du développeur est le pire des deux mondes.* Réglé par un
+`.gitattributes` qui met la règle dans le dépôt plutôt que dans la config de
+chacun.
+
+### Ce qui est vérifié en continu, désormais
+
+| Suite | Cas |
+|---|---|
+| Tests Go | 99 fonctions, 154 cas |
+| Rendu front | 32 vérifications, dont six charges XSS |
+| Injections HTTP | 30 |
+| Matrice d'injections | 44 |
+| Comportements | 21 |
+| Cohérence de la documentation | 12 |
+
+Les six tournent en CI. Les suites qui appellent le modèle — dix injections de
+prompt, six cas d'évaluation — restent manuelles : elles coûtent des jetons, et
+le palier gratuit plafonne à vingt requêtes par jour et par modèle.
+
+### Mes erreurs de cette passe
+
+**J'ai réintroduit un piège documenté dix lignes plus haut** (la clé manquante
+en CI). La documentation ne protège pas de l'inattention.
+
+**J'ai refait deux fois la même erreur de granularité** dans les scripts
+d'audit : une identité par fichier fait tout finir en 429, une identité par
+appel fait tout finir en 404. Les deux produisent un rapport vert sur du vide.
+
+**Mon test d'arrêt mesurait autre chose que ce qu'il annonçait** : son
+expression capturait le délai du préchauffage du cache et affichait un accord
+parfait entre deux valeurs sans rapport.
+
+**Mon test de charge attribuait sa propre limite au service.** À 2 000 clients
+il rapportait des centaines d'échecs — tous côté client, sans aucun refus
+journalisé. Vérifié séparément : 2 000 requêtes vraiment simultanées passent
+sans une exception. C'est le harnais qui épuisait les ports éphémères.
+
+**Mes motifs de détection ne connaissaient qu'une apostrophe.** Le modèle écrit
+« n'existe » avec la typographique : le cas passait en DOUTE alors que la
+réponse était juste. *Un audit qui sous-estime le service trompe autant qu'un
+audit qui le surestime.*
+
+**Et le vérificateur de cohérence avait lui-même un bogue en naissant.**
