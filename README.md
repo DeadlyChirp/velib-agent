@@ -5,6 +5,26 @@ sa métropole. API Go avec `trpc-agent-go`, conversations persistées en
 PostgreSQL, réponse en streaming, front statique. `docker compose up` et c'est
 en ligne.
 
+**La thèse du projet tient en une phrase : les outils calculent, le modèle
+rédige.** Aucun chiffre ne vient de la mémoire du modèle, et aucun outil ne sait
+renvoyer une liste complète. Tout le reste en découle.
+
+### Par où entrer
+
+Ce fichier est long parce qu'il documente les décisions et les mesures, pas
+seulement le code. Trois entrées possibles selon ce que vous cherchez :
+
+| Vous voulez… | Allez à |
+|---|---|
+| le faire tourner | [Lancer](#lancer), deux commandes |
+| juger les choix techniques | [Les décisions, et pourquoi](#les-décisions-et-pourquoi) |
+| voir ce qui a été mesuré | [Performance](#performance--ce-que-la-mesure-a-dit) et [Sécurité](#sécurité--ce-quon-a-essayé-de-casser) |
+
+Trois choses valent le détour : le [passage à l'échelle](#et-si-le-parc-devenait-cent-fois-plus-gros-) où deux fonctions
+décrochent à un million de stations et pas celles qu'on croit, la [mesure ratée](#une-mesure-ratée-et-pourquoi-je-la-raconte)
+que je raconte parce qu'elle chronométrait autre chose que ce que je pensais, et
+la [faille de sécurité](#sécurité--ce-quon-a-essayé-de-casser) que l'audit a trouvée du premier coup.
+
 ---
 
 ## Lancer
@@ -17,23 +37,28 @@ docker compose up --build
 Le front est sur **http://localhost:3000**, l'API sur **http://localhost:8080**.
 
 Le modèle se choisit par variable d'environnement. Tout fournisseur compatible
-OpenAI convient — OpenAI, Groq, Mistral, DeepSeek, ou un Ollama local — en
-changeant `MODEL_NAME` et `OPENAI_BASE_URL`. Les combinaisons testées sont dans
-`.env.example`.
+OpenAI convient — OpenAI, Anthropic, Gemini, Groq, Mistral, Cerebras, ou un
+Ollama local — en changeant `MODEL_NAME` et `OPENAI_BASE_URL`. Les points
+d'entrée listés dans `.env.example` ont tous été vérifiés un par un.
 
-Pour essayer sans carte bancaire, une clé Groq est gratuite et immédiate sur
-[console.groq.com/keys](https://console.groq.com/keys) :
+Pour essayer sans carte bancaire, une clé Gemini est gratuite et immédiate sur
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey) :
 
 ```bash
-MODEL_NAME=llama-3.3-70b-versatile
-OPENAI_API_KEY=gsk_...
-OPENAI_BASE_URL=https://api.groq.com/openai/v1
+MODEL_NAME=gemini-flash-latest
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
+⚠️ `gemini-flash-latest` plutôt qu'une version figée : `gemini-2.5-flash` a été
+retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
+d'erreur ne dit pas que le nom de modèle est le problème.
+
 ```bash
-make test        # 18 tests unitaires, sans réseau ni base
-make test-live   # tests contre la vraie API Vélib'
-make reset       # arrête la pile ET efface les conversations
+make test              # 94 tests, 149 cas, sans réseau ni base
+make test-integration  # boîte noire sur la pile (docker compose up requis)
+make test-live         # contre la vraie API Vélib'
+make reset             # arrête la pile ET efface les conversations
 ```
 
 ---
@@ -372,6 +397,11 @@ python audit/attaques_api.py            # couche HTTP, ne coûte aucun jeton
 python audit/attaques_modele.py         # couche modèle
 python audit/comportements.py --rapide  # maladresses et bords, sans jeton
 ```
+
+Les deux qui n'appellent pas le modèle **tournent en CI à chaque poussée**. Un
+audit qu'on ne relance jamais documente l'état du code le jour où on l'a écrit,
+rien de plus : ces deux-là ont trouvé cinq failles réelles, les brancher est ce
+qui empêche la sixième de passer.
 
 **Couche HTTP, 30 attaques, 29 tenues.** Injection SQL et traversée de chemin
 dans les identifiants, octet nul, corps JSON malformé, imbrication à deux mille

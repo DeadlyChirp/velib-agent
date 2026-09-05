@@ -122,6 +122,19 @@ jobs:
         working-directory: api
         run: go test -tags=integration -count=1 -v ./internal/httpapi/
 
+      # Les audits deviennent continus au lieu d'être un exercice ponctuel.
+      # Seules les parties qui n'appellent PAS le modèle tournent ici : elles ne
+      # coûtent aucun jeton et se contentent de la clé factice.
+      #
+      # Un audit qu'on ne relance jamais documente l'état du code le jour où on
+      # l'a écrit, rien de plus. Ces deux-là ont trouvé cinq failles réelles ;
+      # les brancher sur la CI est ce qui empêche la sixième de passer.
+      - name: Audit adverse — couche HTTP
+        run: python audit/attaques_api.py
+
+      - name: Audit de comportements
+        run: python audit/comportements.py --rapide
+
       - name: Journaux en cas d'échec
         if: failure()
         run: docker compose logs --tail 100
