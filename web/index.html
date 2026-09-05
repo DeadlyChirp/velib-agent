@@ -6,12 +6,16 @@
 <title>Agent Vélib'</title>
 
 <!--
-  Front volontairement tenu en un seul fichier, sans build ni dépendance.
+  Front volontairement tenu sans build ni dépendance.
+
+  Cet écran tient en un fichier, à une exception assumée : typographie.js, sorti
+  d'ici le jour où le tableau de bord en a eu besoin et où les deux copies ont
+  divergé.
 
   La spécification laisse le front libre. Choisir React aurait ajouté un node_modules,
   une étape de build dans le Dockerfile et une surface à réviser, pour un écran
   qui compte une liste et une transcription. Ici tout est lisible d'un bout à
-  l'autre, et l'image finale est un nginx qui sert un fichier statique.
+  l'autre, et l'image finale est un nginx qui sert des fichiers statiques.
 
   ── Parti pris de conception ────────────────────────────────────────────────
 
@@ -539,7 +543,15 @@
     border: 1px solid transparent;
     border-radius: var(--r-md);
     background: var(--accent);
-    color: oklch(99% 0.004 60);
+    /* ⚠️ var(--ground) et non une couleur en dur.
+       Cette ligne portait oklch(99% …), un blanc figé. En thème clair l'accent
+       est une terre cuite à 52 % de clarté : contraste 5,7:1, conforme. En
+       thème sombre l'accent passe à 74 % — un orange clair — et le blanc figé,
+       lui, ne bougeait pas : contraste 2,35:1, sous le plancher AA de 4,5:1,
+       sur le bouton principal du premier écran.
+       --ground s'inverse avec le thème : clair sur accent foncé, foncé sur
+       accent clair. C'était la seule couleur non tokenisée du fichier. */
+    color: var(--ground);
     font: 550 var(--t-base)/1.5 var(--sans);
     cursor: pointer;
     transition: background var(--fast) var(--ease),

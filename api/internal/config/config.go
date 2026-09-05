@@ -41,7 +41,8 @@ type Config struct {
 	// float64 ne sait pas exprimer — 0 est une température parfaitement valide.
 	//
 	// Défaut 0.1, et c'est mesuré, pas choisi au doigt mouillé. Sur les cinq
-	// questions de référence avec qwen2.5:7b en local, 100 tours par configuration :
+	// questions de référence avec qwen2.5:7b en local — 100 tours au défaut du
+	// fournisseur, 150 à 0.1 :
 	// au défaut du fournisseur (0,7 chez ce modèle) 95 % de réponses bien
 	// formées, à 0.1 cent pour cent. Les échecs supprimés étaient des fuites de
 	// syntaxe d'appel d'outil dans la réponse — voir audit/mesures-modeles.md.

@@ -9,7 +9,7 @@
 //
 // COMMENT, SANS OUTILLAGE. Le projet n'a ni node_modules ni bundler, et ce
 // n'est pas un oubli : c'est ce qui permet à l'image finale d'être un nginx qui
-// sert un fichier statique. Alors plutôt qu'installer un moteur de DOM, on en
+// sert des fichiers statiques. Alors plutôt qu'installer un moteur de DOM, on en
 // écrit une doublure de trente lignes qui n'implémente QUE ce que le code
 // utilise. Si le code se met un jour à toucher innerHTML ou insertAdjacentHTML,
 // la doublure ne les connaît pas et le test casse — ce qui est exactement le

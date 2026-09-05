@@ -129,7 +129,7 @@ d'un problème réglé.
 
 | Usage | Modèle |
 |---|---|
-| Démonstration, entretien, CI | un modèle hébergé — les cinq questions passent 6/6 sur `gemini-flash-lite-latest` (voir `audit/evaluation.py`) |
+| Démonstration, entretien, CI | un modèle hébergé — les six cas de `audit/evaluation.py` passent 6/6 sur `gemini-flash-lite-latest` |
 | Local, hors ligne, sans quota | **`qwen2.5:7b`** avec `MODEL_TEMPERATURE=0.1` — 150/150 |
 
 `.env.example` documente les deux chemins.
