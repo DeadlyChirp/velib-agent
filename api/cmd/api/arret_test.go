@@ -108,3 +108,50 @@ func racineDuDepot() (string, bool) {
 	}
 	return "", false
 }
+
+// La version de Go doit être décidée à UN seul endroit.
+//
+// L'écart existait à trois : go.mod déclarait 1.26.5, le Dockerfile construisait
+// en 1.27, et la CI — qui lit go.mod — se retrouvait sur 1.26.5. Or cette
+// version porte sept vulnérabilités de bibliothèque standard, corrigées en
+// 1.26.6 : la CI les signalait alors que l'image livrée n'en avait aucune. Le
+// scan disait vrai, il ne parlait simplement pas de ce qu'on livre.
+//
+// La directive « toolchain » de go.mod fait foi. Ce test vérifie que le
+// Dockerfile la suit.
+func TestVersionDeGoCoherenteEntreGoModEtDockerfile(t *testing.T) {
+	racine, ok := racineDuDepot()
+	if !ok {
+		t.Skip("racine du dépôt hors de portée depuis ce répertoire")
+	}
+
+	gomod, err := os.ReadFile(filepath.Join(racine, "api", "go.mod"))
+	if err != nil {
+		t.Fatalf("lecture de go.mod : %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^toolchain go(\d+)\.(\d+)`).FindSubmatch(gomod)
+	if m == nil {
+		t.Fatal("aucune directive toolchain dans go.mod : la version de la chaîne " +
+			"d'outils est alors decidee par la machine, et diverge du Dockerfile")
+	}
+	majeureMod, mineureMod := string(m[1]), string(m[2])
+
+	docker, err := os.ReadFile(filepath.Join(racine, "api", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("lecture du Dockerfile : %v", err)
+	}
+	d := regexp.MustCompile(`FROM golang:(\d+)\.(\d+)`).FindSubmatch(docker)
+	if d == nil {
+		t.Fatal("version de l'image golang introuvable dans le Dockerfile")
+	}
+	majeureImg, mineureImg := string(d[1]), string(d[2])
+
+	t.Logf("go.mod : %s.%s, Dockerfile : %s.%s",
+		majeureMod, mineureMod, majeureImg, mineureImg)
+
+	if majeureMod != majeureImg || mineureMod != mineureImg {
+		t.Errorf("go.mod demande Go %s.%s, le Dockerfile construit en %s.%s : "+
+			"la CI et l'image livrée ne compilent pas avec la même chaîne d'outils",
+			majeureMod, mineureMod, majeureImg, mineureImg)
+	}
+}

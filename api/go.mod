@@ -2,6 +2,20 @@ module velib-agent
 
 go 1.26.5
 
+// ⚠️ La directive « go » ci-dessus est la version MINIMALE du langage. Elle ne
+// dit rien de la chaîne d'outils qui compile, et c'est ce qui a produit un écart
+// a trois versions : go.mod disait 1.26.5, le Dockerfile construisait en 1.27,
+// et la CI — qui lit ce fichier — se retrouvait sur 1.26.5.
+//
+// Or Go 1.26.5 porte sept vulnerabilites de bibliotheque standard, corrigees en
+// 1.26.6. La CI les signalait alors que l'image livree, construite en 1.27, n'en
+// avait aucune. Le scan disait vrai, il ne parlait simplement pas de la meme
+// chose que ce qu'on livre.
+//
+// « toolchain » fait de ce fichier la source unique : setup-go la respecte, et
+// le Dockerfile s'aligne dessus. Un test verifie que les deux restent d'accord.
+toolchain go1.27.1
+
 require (
 	github.com/openai/openai-go v1.12.0
 	golang.org/x/text v0.41.0
