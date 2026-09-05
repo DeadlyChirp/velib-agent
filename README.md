@@ -55,7 +55,7 @@ retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
 d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
-make test              # 99 tests, 154 cas, sans réseau ni base
+make test              # 100 tests, 155 cas, sans réseau ni base
 make test-front        # 28 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-live         # contre la vraie API Vélib'
@@ -341,12 +341,12 @@ les conversations d'Alice.
 
 | Paquet | Couverture | Ce qui est vérifié |
 |---|---|---|
-| `config` | 95 % | rédaction des secrets, défauts, validation |
-| `observability` | 94 % | division par zéro, borne mémoire, accès concurrent |
-| `tools` | 88 % | schémas et bornes des sorties |
-| `velib` | 85 % | agrégations, cache, jointure, **client HTTP** |
-| `httpapi` | 26 % | débit, concurrence, traduction des erreurs, titres |
-| `agent` | 19 % | compatibilité fournisseur, cloisonnement des clés |
+| `config` | 96 % | rédaction des secrets, défauts, validation |
+| `observability` | 96 % | division par zéro, borne mémoire, accès concurrent |
+| `tools` | 90 % | schémas et bornes des sorties |
+| `velib` | 87 % | agrégations, cache, jointure, **client HTTP** |
+| `httpapi` | 23 % | débit, concurrence, traduction des erreurs, titres |
+| `agent` | 11 % | compatibilité fournisseur, cloisonnement des clés |
 
 **Trois vulnérabilités corrigées.** `govulncheck` tourne en CI et ne signale que
 ce que le code **appelle réellement** — pas tout ce qui traîne dans `go.sum`.
@@ -371,7 +371,12 @@ toujours vraies, mauvais usages de la bibliothèque standard. **Zéro
 avertissement** — l'ajouter maintenant fige ce niveau plutôt que de le laisser
 se dégrader en silence.
 
-**99 fonctions de test, 154 cas**, 59 % de couverture globale — contre 32 %
+Ces pourcentages **dépendent de la chaîne d'outils** : passer de Go 1.26 à 1.27
+les a fait bouger de plusieurs points à tests strictement identiques,
+l'instrumentation ne comptant pas les mêmes instructions. Une raison de plus de
+ne pas en faire un objectif chiffré.
+
+**100 fonctions de test, 155 cas**, 59 % de couverture globale — contre 32 %
 avant cette passe.
 
 La frontière réseau mérite une mention. `client.go` était à **0 %** : c'est
@@ -434,7 +439,7 @@ ponctuation haute, ce qui transforme `javascript:alert(1)` en
 bord heureux, noté comme tel dans le test : c'est un **accident**, pas une
 défense, et la vraie défense reste de ne jamais écrire de HTML brut.
 
-**Sur les 26 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
+**Sur les 23 % de `httpapi`, une précision honnête.** Le chiffre est trompeur :
 les tests de ce paquet interrogent le binaire conteneurisé par HTTP, donc Go ne
 peut pas les compter. Le compromis est délibéré — ils exercent le vrai routage,
 la vraie base et la vraie sérialisation. C'est d'ailleurs ce qui leur a fait

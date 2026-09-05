@@ -254,7 +254,7 @@ c'est le genre de réflexe qui passe une relecture rapide.
 
 ### Ce que j'ai refusé de faire
 
-`internal/httpapi` reste à 26 % de couverture et **j'y laisse**. Ces
+`internal/httpapi` reste à 23 % de couverture et **j'y laisse**. Ces
 gestionnaires sont testés par la suite d'intégration, contre le vrai PostgreSQL
 et le vrai routage. Ajouter 150 lignes de doublure de session pour afficher
 60 % testerait *moins* pour plus cher — du théâtre de couverture.
