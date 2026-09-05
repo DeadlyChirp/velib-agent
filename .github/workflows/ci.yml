@@ -58,6 +58,16 @@ jobs:
         working-directory: api
         run: go vet ./...
 
+      # staticcheck va plus loin que go vet : code mort, comparaisons toujours
+      # vraies, mauvais usages de la bibliotheque standard, conversions
+      # inutiles. Il passe a zero avertissement, et l'ajouter maintenant fige ce
+      # niveau plutot que de le laisser se degrader en silence.
+      - name: Analyse statique approfondie
+        working-directory: api
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" ./...
+
       - name: Tests avec détecteur de compétition
         working-directory: api
         # -race est essentiel ici : le cache est lu par plusieurs requêtes

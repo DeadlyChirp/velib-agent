@@ -65,6 +65,7 @@ make reset             # arrête la pile ET efface les conversations
 Sans `make` — sous Windows, typiquement — les mêmes commandes en direct :
 
 ```bash
+cd api && go vet ./...                                              # vet
 cd api && go test -count=1 ./...                                    # test
 cd api && go test -tags=integration -count=1 -v ./internal/httpapi/ # test-integration
 cd api && go test -tags=live -count=1 -v ./internal/velib/          # test-live
@@ -346,6 +347,11 @@ les conversations d'Alice.
 | `velib` | 85 % | agrégations, cache, jointure, **client HTTP** |
 | `httpapi` | 26 % | débit, concurrence, traduction des erreurs, titres |
 | `agent` | 19 % | compatibilité fournisseur, cloisonnement des clés |
+
+`staticcheck` tourne aussi en CI, en plus de `go vet` : code mort, comparaisons
+toujours vraies, mauvais usages de la bibliothèque standard. **Zéro
+avertissement** — l'ajouter maintenant fige ce niveau plutôt que de le laisser
+se dégrader en silence.
 
 **99 fonctions de test, 154 cas**, 59 % de couverture globale — contre 32 %
 avant cette passe.

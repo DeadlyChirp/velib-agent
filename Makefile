@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make help` liste tout.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs test test-front test-doc test-injections test-charge test-norace test-race-docker test-live test-integration cover fmt vet check reset
+.PHONY: help up down logs test test-front test-doc test-injections test-charge test-norace test-race-docker test-live test-integration cover fmt vet lint check reset
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -59,5 +59,8 @@ fmt: ## Formate le code
 
 vet: ## Analyse statique
 	cd api && go vet ./...
+
+lint: ## Analyse statique approfondie (staticcheck, dans le conteneur)
+	cd api && docker run --rm -v "/$$(pwd):/src" -w //src golang:1.27-alpine 		sh -c "apk add --no-cache git >/dev/null 2>&1 && 		go install honnef.co/go/tools/cmd/staticcheck@latest >/dev/null 2>&1 && 		/go/bin/staticcheck ./..."
 
 check: fmt vet test test-front ## Formatage, analyse statique et tests
