@@ -185,9 +185,19 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 	dataStale := false
 
 	for ev := range events {
-		// Le client a fermé l'onglet. On sort de la boucle sans paniquer : le
-		// Runner, lui, finit son tour et persiste ce qu'il a produit, donc la
-		// réponse sera là au rechargement.
+		// Le client a fermé l'onglet. On sort de la boucle sans paniquer.
+		//
+		// Ce qui survit, exactement : la QUESTION est persistée, la réponse
+		// partielle est PERDUE. Le Runner reçoit `r.Context()` (plus haut), donc
+		// la déconnexion l'annule lui aussi — il ne finit pas son tour dans son
+		// coin.
+		//
+		// Le framework sait faire autrement : runner.WithPersistInterruptedAssistant,
+		// « The default is false to preserve cancellation semantics ». Vu et
+		// écarté. L'activer ferait entrer une réponse tronquée dans l'historique,
+		// relue telle quelle au tour suivant comme si le modèle l'avait finie.
+		// Une question sans réponse est un état honnête ; une réponse coupée au
+		// milieu présentée comme complète ne l'est pas.
 		select {
 		case <-r.Context().Done():
 			s.log.Info("client déconnecté en cours de réponse",
@@ -295,11 +305,6 @@ func (s *Server) streamAnswer(w http.ResponseWriter, r *http.Request, uid, convI
 	send(sseEvent{Type: "done", Full: answer, Tokens: tokens})
 }
 
-// handleHealth rend l'état du service.
-//
-// On teste PostgreSQL par un appel réel plutôt que de renvoyer « ok » en dur :
-// une sonde qui répond toujours vrai ne sert à rien, et c'est précisément ce
-// genre de contrôle vert en permanence qui laisse une panne passer inaperçue.
 // messageUtilisateur traduit l'erreur du fournisseur en une phrase actionnable.
 //
 // Toutes les pannes ne se valent pas. Une limite de debit est PASSAGERE : la
@@ -345,6 +350,11 @@ func messageUtilisateur(brut string) string {
 	}
 }
 
+// handleHealth rend l'état du service.
+//
+// On teste PostgreSQL par un appel réel plutôt que de renvoyer « ok » en dur :
+// une sonde qui répond toujours vrai ne sert à rien, et c'est précisément ce
+// genre de contrôle vert en permanence qui laisse une panne passer inaperçue.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()

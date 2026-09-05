@@ -4,3 +4,5 @@ api/bin/
 web/node_modules/
 
 api/.cover.tmp
+__pycache__/
+*.pyc

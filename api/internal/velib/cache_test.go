@@ -108,3 +108,96 @@ func TestSourceEnPanneAuDemarrageRemonteLErreur(t *testing.T) {
 		t.Fatal("erreur attendue quand la source tombe et que le cache est vide")
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Le chemin qui servait du périmé sans le dire
+// ─────────────────────────────────────────────────────────────────────────────
+
+// fetcherQuiTombe réussit le premier appel puis échoue à tous les suivants.
+// Pas de champ écrit depuis le test pendant que la goroutine de fond lit : le
+// basculement est porté par le compteur atomique lui-même.
+type fetcherQuiTombe struct{ appels atomic.Int32 }
+
+func (f *fetcherQuiTombe) Fetch(context.Context) (Snapshot, error) {
+	if f.appels.Add(1) == 1 {
+		return Snapshot{
+			Stations:  []Station{{ID: 1, Name: "Test", IsInstalled: true, IsRenting: true}},
+			FetchedAt: time.Now(),
+		}, nil
+	}
+	return Snapshot{}, errors.New("source injoignable")
+}
+
+// Le chemin le plus fréquent du cache — servir tout de suite, rafraîchir
+// derrière — ne savait pas dire qu'il servait du périmé.
+//
+// Pendant une panne de la source, il rendait des chiffres datés avec
+// Stale=false et comptait des succès de cache. Le compteur de donnée périmée,
+// qui existe précisément pour rendre l'incident visible, restait à zéro pendant
+// l'incident. Le champ Stale se définit pourtant comme « servi alors que le
+// rafraîchissement a échoué » : c'était exactement ce cas.
+//
+// Aucun test ne portait sur Stale avant celui-ci.
+func TestPerimeMarqueQuandLeRafraichissementDeFondEchoue(t *testing.T) {
+	f := &fetcherQuiTombe{}
+	c := cacheDeTest(f, 20*time.Millisecond)
+
+	if _, err := c.Snapshot(context.Background()); err != nil {
+		t.Fatalf("amorçage : %v", err)
+	}
+
+	// Passé le TTL, l'appel suivant prend le chemin non bloquant et déclenche
+	// un rafraîchissement de fond, qui échouera.
+	time.Sleep(40 * time.Millisecond)
+	snap, err := c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("appel non bloquant : %v", err)
+	}
+	// Celui-ci est légitimement non marqué : à cet instant, aucun échec n'est
+	// encore connu. C'est le suivant qui doit changer d'avis.
+	if snap.Stale {
+		t.Error("marqué périmé avant même qu'un rafraîchissement ait échoué")
+	}
+
+	// On laisse l'échec se produire et se publier.
+	fin := time.Now().Add(2 * time.Second)
+	for f.appels.Load() < 2 && time.Now().Before(fin) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	snap, err = c.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("appel après échec : %v", err)
+	}
+	if !snap.Stale {
+		t.Fatal("la source est tombée, le cache sert une donnée datée et la " +
+			"présente comme fraîche : le modèle n'a aucun moyen de le dire")
+	}
+	if snap.StaleReason == "" {
+		t.Error("Stale sans raison : l'agent ne peut rien expliquer à l'utilisateur")
+	}
+}
+
+// Le miroir : tant que la source répond, ce chemin ne doit RIEN marquer. Un
+// drapeau qui se lève à chaque expiration de TTL se lèverait en permanence, et
+// un signal permanent cesse d'être lu.
+func TestPerimeNeMarquePasQuandLaSourceRepond(t *testing.T) {
+	f := &fetcherLent{delai: 5 * time.Millisecond}
+	c := cacheDeTest(f, 20*time.Millisecond)
+
+	if _, err := c.Snapshot(context.Background()); err != nil {
+		t.Fatalf("amorçage : %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		time.Sleep(30 * time.Millisecond)
+		snap, err := c.Snapshot(context.Background())
+		if err != nil {
+			t.Fatalf("tour %d : %v", i, err)
+		}
+		if snap.Stale {
+			t.Fatalf("tour %d : marqué périmé alors que la source répond, "+
+				"raison = %q", i, snap.StaleReason)
+		}
+	}
+}

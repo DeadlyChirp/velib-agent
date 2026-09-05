@@ -39,18 +39,27 @@ type fetcher interface {
 
 // Cache sert le parc avec une politique de fraîcheur explicite.
 //
-// Trois comportements, dans cet ordre :
+// Quatre chemins, dans cet ordre :
 //
 //  1. Donnée fraîche en mémoire  ->  servie immédiatement, aucun appel réseau.
-//  2. Donnée périmée             ->  UN SEUL rafraîchissement, même si cent
-//     requêtes arrivent en même temps.
-//  3. Rafraîchissement en échec  ->  on sert la dernière donnée connue en la
-//     MARQUANT périmée, plutôt que de renvoyer une erreur.
+//  2. Donnée périmée, source OK  ->  servie IMMÉDIATEMENT et rafraîchie
+//     derrière, jusqu'à staleFactor × TTL. Marquée périmée seulement si le
+//     dernier rafraîchissement a échoué.
+//  3. Rafraîchissement en vol    ->  on s'y raccroche, UN SEUL départ même si
+//     cent requêtes arrivent en même temps.
+//  4. Trop vieux, ou rien en     ->  on attend le réseau. En échec, on sert la
+//     mémoire                        dernière donnée connue en la MARQUANT
+//     périmée, plutôt que de renvoyer une erreur.
 //
-// Le point 3 est délibéré. Un agent qui reçoit une erreur brute a tendance à
+// Le marquage est délibéré. Un agent qui reçoit une erreur brute a tendance à
 // combler le vide en inventant. Un agent qui reçoit « voici la donnée, elle a
 // quarante minutes, la source est injoignable » peut le dire honnêtement à
 // l'utilisateur. Une panne qui crie coûte moins cher qu'une panne qui se tait.
+//
+// ⚠️ Le chemin 2 ne marquait rien, et c'est le plus emprunté : pendant toute
+// une panne de la source, le service rendait des chiffres périmés avec
+// Stale=false et comptait des succès de cache. Le tableau de bord restait vert
+// pendant l'incident. Corrigé par le champ dernierEchec.
 type Cache struct {
 	fetcher fetcher
 	ttl     time.Duration
@@ -66,6 +75,17 @@ type Cache struct {
 	current  Snapshot
 	hasData  bool
 	inFlight *call // rafraîchissement en cours, partagé entre appelants
+
+	// dernierEchec retient l'erreur du dernier rafraîchissement, nil s'il a
+	// réussi.
+	//
+	// Sans ce champ, le chemin « je sers tout de suite et je rafraîchis
+	// derrière » ne pouvait PAS savoir qu'un rafraîchissement venait d'échouer :
+	// il rendait la donnée avec Stale=false et comptait un succès de cache,
+	// pendant toute une panne de la source. Le champ Stale se définit pourtant
+	// comme « servi alors que le rafraîchissement a échoué » — c'est exactement
+	// ce cas, et c'est le chemin le plus fréquent.
+	dernierEchec error
 }
 
 // call porte un rafraîchissement en cours. C'est un singleflight minimal :
@@ -137,9 +157,14 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	//    ces 700 ms pour tout le monde. Sur un tour d'agent deja long, c'est le
 	//    genre de pic qu'on ne remarque qu'en production.
 	//
-	//    Le compromis est franc : la donnee servie a au plus un TTL de retard.
-	//    Pour un comptage de velos qui bouge a la minute, personne ne verra la
-	//    difference — alors que tout le monde voit 700 ms d'attente.
+	//    Le compromis est franc : TANT QUE LA SOURCE REPOND, la donnee servie a
+	//    au plus un TTL de retard. Pour un comptage de velos qui bouge a la
+	//    minute, personne ne verra la difference — alors que tout le monde voit
+	//    700 ms d'attente.
+	//
+	//    Si elle ne repond plus, ce chemin continue de servir jusqu'a
+	//    staleFactor × TTL, et c'est la que le marquage compte : la donnee peut
+	//    alors avoir dix TTL de retard, ce qui n'est plus un detail.
 	//
 	//    Garde-fou : au-dela de staleFactor × TTL, on refuse de servir sans
 	//    attendre. Si la source est tombee depuis dix minutes, l'appelant doit
@@ -147,12 +172,23 @@ func (c *Cache) Snapshot(ctx context.Context) (Snapshot, error) {
 	//    s'ils etaient frais.
 	if c.hasData && time.Since(c.current.FetchedAt) < time.Duration(c.staleFactor)*c.ttl {
 		snap := c.current
+		echec := c.dernierEchec
 		if c.inFlight == nil {
 			cl := &call{done: make(chan struct{})}
 			c.inFlight = cl
 			go c.refresh(context.WithoutCancel(ctx), cl)
 		}
 		c.mu.Unlock()
+
+		// Tant que le rafraîchissement de fond réussit, cette donnée n'a qu'un
+		// TTL de retard et rien ne justifie d'alarmer le modèle. Dès qu'il
+		// échoue, en revanche, on sert du périmé pendant toute la panne : il
+		// FAUT le dire, sinon le compteur de donnée périmée reste à zéro
+		// pendant l'incident qu'il existe pour rendre visible.
+		if echec != nil {
+			c.rec.RecordStaleServed()
+			return markStale(snap, echec.Error()), nil
+		}
 		c.rec.RecordCacheHit()
 		return snap, nil
 	}
@@ -234,6 +270,9 @@ func (c *Cache) refresh(ctx context.Context, cl *call) {
 		c.current = snap
 		c.hasData = true
 	}
+	// Mémorisé dans les deux sens : un échec arme le marquage périmé du chemin
+	// non bloquant, un succès le désarme.
+	c.dernierEchec = err
 	cl.snap, cl.err = snap, err
 	c.inFlight = nil
 	close(cl.done)

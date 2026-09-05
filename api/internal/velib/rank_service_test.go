@@ -1,8 +1,10 @@
 package velib
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Ces tests verrouillent la correction du défaut le plus grave trouvé pendant
@@ -132,5 +134,66 @@ func TestFindStationsNotTruncatedWhenItFits(t *testing.T) {
 	if got.TotalMatches != got.MatchCount {
 		t.Errorf("total_matches=%d et match_count=%d devraient être égaux",
 			got.TotalMatches, got.MatchCount)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La note d'ex aequo, qui ne pouvait jamais être émise
+// ─────────────────────────────────────────────────────────────────────────────
+
+// exAequo construit un parc où TOUTES les stations valent zéro vélo. Ce n'est
+// pas un cas de laboratoire : sur le parc réel, « les stations avec le moins de
+// vélos » met des dizaines de stations à égalité parfaite.
+func exAequo(n int) Snapshot {
+	s := Snapshot{FetchedAt: refTime.Add(-10 * time.Second)}
+	for i := 0; i < n; i++ {
+		nom := fmt.Sprintf("Station %02d", i)
+		s.Stations = append(s.Stations, Station{
+			ID: int64(i + 1), Code: fmt.Sprintf("%05d", i), Name: nom,
+			searchKey: normalize(nom),
+			Capacity:  20, BikesAvailable: 0, DocksAvailable: 20,
+			IsInstalled: true, IsRenting: true, IsReturning: true,
+			LastReported: refTime.Add(-30 * time.Second),
+		})
+	}
+	return s
+}
+
+// Le défaut : le comptage lisait la tranche suivant les k retenus DANS la liste
+// que topK venait de réduire à k éléments. Elle était toujours vide, la garde
+// toujours fausse, et la note jamais émise — alors que la description de
+// l'outil et le README la promettaient au modèle.
+//
+// Sans elle, le modèle présente trois noms tirés par ordre alphabétique comme
+// un palmarès, ce qui est faux avec assurance.
+func TestRankSignaleLesExAequo(t *testing.T) {
+	got := Rank(exAequo(12), MetricBikesAvailable, 3, true, refTime)
+
+	if len(got.Stations) != 3 {
+		t.Fatalf("%d stations rendues, attendu 3", len(got.Stations))
+	}
+	if !strings.Contains(got.Note, "même valeur") {
+		t.Fatalf("douze stations à égalité, trois montrées, et le modèle n'en "+
+			"sait rien : note = %q", got.Note)
+	}
+	// Douze à égalité, trois montrées : il en reste neuf à signaler, et pas
+	// douze — les ex aequo déjà affichés ne sont pas une information neuve.
+	if !strings.Contains(got.Note, "9 autres") {
+		t.Errorf("compte d'ex aequo faux, attendu « 9 autres », note = %q", got.Note)
+	}
+}
+
+// Le miroir, et il compte autant : quand tout le monde est montré, il n'existe
+// aucun ex aequo caché. Une note émise là devient du bruit permanent, et un
+// signal qui apparaît toujours cesse d'être lu.
+func TestRankNeSignalePasDExAequoQuandToutEstMontre(t *testing.T) {
+	got := Rank(exAequo(4), MetricBikesAvailable, 10, true, refTime)
+
+	if len(got.Stations) != 4 {
+		t.Fatalf("%d stations rendues, attendu 4", len(got.Stations))
+	}
+	if strings.Contains(got.Note, "même valeur") {
+		t.Errorf("les quatre stations sont montrées, aucun ex aequo n'est caché, "+
+			"la note est du bruit : %q", got.Note)
 	}
 }

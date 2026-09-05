@@ -55,8 +55,8 @@ retiré aux nouveaux comptes pendant l'écriture de ce projet, et le message
 d'erreur ne dit pas que le nom de modèle est le problème.
 
 ```bash
-make test              # 101 tests, 156 cas, sans réseau ni base
-make test-front        # 28 vérifications du rendu front (Node, sans dépendance)
+make test              # 105 tests, 160 cas, sans réseau ni base
+make test-front        # 32 vérifications du rendu front (Node, sans dépendance)
 make test-integration  # boîte noire sur la pile (docker compose up requis)
 make test-live         # contre la vraie API Vélib'
 make reset             # arrête la pile ET efface les conversations
@@ -173,6 +173,19 @@ Le classement signale aussi les **ex aequo**. Sur « les stations avec le moins 
 vélos », des dizaines sont à zéro : sans ce signal, le modèle présenterait vingt
 noms départagés à l'alphabet comme s'il s'agissait d'un palmarès.
 
+⚠️ **Ce signal était mort et je l'ai cru vivant pendant tout le projet.** Le
+comptage des ex aequo lisait la tranche qui suit les k retenus — mais dans la
+liste que la sélection bornée venait justement de réduire à k éléments. Elle
+était donc toujours vide, la garde toujours fausse, et la note jamais émise.
+Trois endroits la promettaient au modèle, dont ce paragraphe.
+
+Aucun test ne l'a vu parce que tous comparaient la **liste** rendue, jamais la
+**note**. C'est la leçon la plus utile du projet : un test qui vérifie le
+résultat principal ne protège pas les signaux qui l'accompagnent, et ce sont
+justement eux qui empêchent le modèle de sur-interpréter. Le comptage porte
+maintenant sur la liste complète des éligibles, et
+`TestRankSignaleLesExAequo` échoue si la note redevient muette.
+
 ### 4. La recherche renvoie des candidats, jamais « la » station
 
 Mesuré sur le parc réel : **532 stations sur 1 519 portent des accents**, trois
@@ -213,6 +226,18 @@ contrairement à l'attente.
 Garde-fou : au-delà de dix fois le TTL, on redevient bloquant. Si la source est
 tombée depuis dix minutes, l'appelant doit l'apprendre, pas recevoir des chiffres
 d'un quart d'heure comme s'ils étaient frais.
+
+⚠️ **Le marquage manquait précisément sur le chemin le plus fréquent.** Servir
+sans attendre et rafraîchir derrière ne consultait pas le résultat du
+rafraîchissement précédent : pendant toute une panne de la source, ce chemin
+rendait des chiffres périmés avec `stale=false` et comptait des **succès** de
+cache. Le compteur de donnée périmée — celui du tableau de bord, qui existe pour
+rendre l'incident visible — restait à zéro pendant l'incident.
+
+Le cache retient maintenant l'échec du dernier rafraîchissement. Deux tests
+tiennent les deux moitiés : marquer pendant la panne, et surtout ne **pas**
+marquer tant que la source répond, sinon le drapeau se lèverait à chaque
+expiration de TTL et un signal permanent cesse d'être lu.
 
 ### 5 bis. Ne pas savoir est un résultat, pas une panne
 
@@ -385,7 +410,7 @@ les conversations d'Alice.
 | `config` | 96 % | rédaction des secrets, défauts, validation |
 | `observability` | 96 % | division par zéro, borne mémoire, accès concurrent |
 | `tools` | 90 % | schémas et bornes des sorties |
-| `velib` | 87 % | agrégations, cache, jointure, **client HTTP** |
+| `velib` | 88 % | agrégations, cache, jointure, **client HTTP** |
 | `httpapi` | 23 % | débit, concurrence, traduction des erreurs, titres |
 | `agent` | 11 % | compatibilité fournisseur, cloisonnement des clés |
 
@@ -417,14 +442,16 @@ les a fait bouger de plusieurs points à tests strictement identiques,
 l'instrumentation ne comptant pas les mêmes instructions. Une raison de plus de
 ne pas en faire un objectif chiffré.
 
-**101 fonctions de test, 156 cas**, 61 % de couverture sur `internal/` — contre
+**105 fonctions de test, 160 cas**, 62 % de couverture sur `internal/` — contre
 32 % avant cette passe.
 
-Le périmètre est précisé parce qu'il change le chiffre : 61 % sur `internal/`,
-55 % en comptant `cmd/api`, dont le `main` n'est couvert par aucun test
+Le périmètre est précisé parce qu'il change le chiffre : 62 % sur `internal/`,
+56 % en comptant `cmd/api`, dont le `main` n'est couvert par aucun test
 unitaire. Un pourcentage de couverture sans son périmètre est un chiffre qu'on
-peut faire dire ce qu'on veut, et celui-ci avait discrètement dérivé de 59 à 61
-avant que `audit/coherence_doc.py` ne le vérifie aussi.
+peut faire dire ce qu'on veut. Celui-ci avait discrètement dérivé de deux points
+sans que rien ne le voie : `audit/coherence_doc.py` contrôlait les six
+couvertures par paquet et pas le total. Il vérifie maintenant les deux, plus le
+nombre de cas et le compte du rendu front, des deux côtés — README et NOTES.
 
 La frontière réseau mérite une mention. `client.go` était à **0 %** : c'est
 pourtant là que vivent les vrais bugs, parce que c'est le seul endroit qui
@@ -464,7 +491,7 @@ image de production.
 
 ### Le front aussi, sans rien installer
 
-`web/rendu_test.mjs` — 28 vérifications, aucune dépendance, aucune étape de
+`web/rendu_test.mjs` — 32 vérifications, aucune dépendance, aucune étape de
 build. Le projet n'a ni `node_modules` ni bundler, et ce n'est pas un oubli :
 c'est ce qui permet à l'image finale d'être un nginx qui sert un fichier
 statique. Plutôt qu'installer un moteur de DOM, le test en écrit une doublure de
@@ -903,8 +930,16 @@ premier chronomètre mesurait autre chose que ce que je croyais.
 1. **Historiser les snapshots** pour répondre aux questions de tendance
    (« cette station est-elle souvent vide le matin ? »). C'est la seule
    fonctionnalité qui changerait la nature du produit plutôt que de l'élargir.
-2. **Tests de bout en bout** sur le flux SSE et le cycle de vie des
-   conversations. Les agrégations sont couvertes, la couche HTTP ne l'est pas.
+2. **Un test qui coupe vraiment la pile.** La spécification demande que l'historique
+   survive à un redémarrage, et c'est la seule de ses exigences qu'aucun test
+   ne rejoue : personne ne vérifie automatiquement « envoyer un message,
+   `docker compose down`, `up`, relire la conversation ». Je l'ai fait à la
+   main, ce qui n'est pas la même chose.
+
+   *Ce point disait initialement que la couche HTTP n'était pas couverte. C'était
+   faux — `TestCycleDeVieConversation` et `TestFluxSSE` tournent à chaque
+   poussée. Un audit me l'a montré : je sous-vendais mon travail le plus
+   vérifiable en recopiant une lacune qui n'existait plus.*
 3. **Traces OpenTelemetry.** Le framework les expose, et Langfuse est un backend
    OTLP : le coût et la latence par outil deviendraient visibles sans code
    supplémentaire.

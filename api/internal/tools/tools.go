@@ -142,6 +142,11 @@ func (r *Registry) networkSummary() tool.Tool {
 				"en tout » ou « quel pourcentage de stations est hors service ». "+
 				"Le champ out_of_service_rule donne la définition exacte appliquée pour "+
 				"« hors service » : la citer si l'utilisateur peut en douter. "+
+				"ATTENTION, les totaux décrivent le parc ENTIER, stations hors service "+
+				"comprises : un vélo garé dans une station qui ne prête plus est compté "+
+				"dans bikes_available. C'est voulu — « combien de vélos y a-t-il » porte "+
+				"sur le parc physique. Ne pas comparer ces totaux à ceux de "+
+				"rank_stations, qui EXCLUT les stations hors service. "+
 				"Ne prend aucun paramètre."),
 	)
 }

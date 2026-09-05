@@ -367,7 +367,7 @@ chacun.
 
 | Suite | Cas |
 |---|---|
-| Tests Go | 99 fonctions, 154 cas |
+| Tests Go | 105 fonctions, 160 cas |
 | Rendu front | 32 vérifications, dont six charges XSS |
 | Injections HTTP | 30 |
 | Matrice d'injections | 44 |
@@ -443,3 +443,59 @@ sous-tests l'obligeait à lire une sortie verbeuse : Python la décodait avec la
 locale Windows et mourait sur le premier « d'un message de test. Deuxième bogue
 de naissance pour ce script — il a en échange attrapé mes deux chiffres faux dès
 la première exécution, dont un que j'introduisais moi-même en ajoutant un test.
+
+---
+
+## Audit adverse à 91 agents, 5 septembre
+
+Neuf lentilles indépendantes sur le dépôt — conformité littérale à la spécification,
+périmètre fonctionnel, démarrage à froid, conception des outils, README
+défendable, qualité du code, secrets, historique git, front. Chaque constat
+soumis à trois sceptiques ayant chacun une consigne différente : vérifier la
+preuve, juger l'impact réel sur l'évaluation, et refuser la sur-ingénierie.
+Un constat ne survivait qu'avec deux voix sur trois.
+
+**Le plus grave était un signal mort que je croyais vivant depuis le début.**
+La note d'ex aequo de `rank_stations` comptait les égalités dans la tranche
+suivant les k retenus — mais dans la liste que `topK` venait de réduire à k
+éléments. Toujours vide, garde toujours fausse, note jamais émise. Trois
+endroits la promettaient au modèle, dont le README.
+
+Aucun test ne l'avait vu parce que tous comparaient la **liste** rendue, jamais
+la **note**. C'est la leçon la plus transférable du lot : un test qui vérifie le
+résultat principal ne protège pas les signaux qui l'accompagnent, et ce sont
+justement eux qui empêchent le modèle de sur-interpréter.
+
+**Le cache mentait sur son chemin le plus fréquent.** « Servir tout de suite et
+rafraîchir derrière » ne consultait pas le résultat du rafraîchissement
+précédent : pendant une panne de la source, il rendait des chiffres périmés avec
+`stale=false` et comptait des succès de cache. Le compteur qui existe pour rendre
+l'incident visible restait à zéro pendant l'incident. Corrigé, avec les deux
+tests qui tiennent les deux moitiés — marquer pendant la panne, ne pas marquer
+tant que la source répond.
+
+**Un commentaire affirmait le contraire du code.** « Le Runner finit son tour et
+persiste ce qu'il a produit » alors qu'il reçoit le contexte de la requête, donc
+la déconnexion l'annule. Le framework expose bien
+`WithPersistInterruptedAssistant`, dont la valeur par défaut est `false` « to
+preserve cancellation semantics ». Vu et écarté : une réponse tronquée qui entre
+dans l'historique est relue au tour suivant comme si le modèle l'avait finie.
+
+**Le README sous-vendait le travail le plus vérifiable.** « Avec plus de temps »
+réclamait des tests de bout en bout sur le flux SSE et le cycle de vie des
+conversations — `TestCycleDeVieConversation` et `TestFluxSSE` existent et
+tournent à chaque poussée. La vraie lacune, elle, n'était nommée nulle part :
+aucun test ne rejoue « envoyer un message, couper la pile, la relancer, relire
+l'historique », qui est pourtant une exigence explicite de la spécification.
+
+**Et j'ai commis moi-même deux fautes pendant cette session.** J'ai poussé sur
+`main` alors que le dépôt est sur `master`, créant une branche en double. Puis
+`git add -A`, juste après un `py_compile`, a fait entrer 81 Ko de bytecode
+Python dans un commit dont le message n'en disait pas un mot — dans un dépôt
+dont la spécification exige littéralement « un historique lisible ». `__pycache__/` et
+`*.pyc` sont maintenant ignorés.
+
+Le vérificateur de cohérence est passé de 12 à 21 contrôles : il vérifie
+désormais le nombre de cas, la couverture globale avec son périmètre, le compte
+du rendu front, et les mêmes chiffres **des deux côtés**, README et NOTES —
+c'est là que trois valeurs fausses s'étaient logées.

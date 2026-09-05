@@ -126,6 +126,43 @@ for perimetre, cible, motif in [
 (RACINE / "api" / ".cover.tmp").unlink(missing_ok=True)
 
 print()
+print("=== Rendu front ===")
+# Le README annonce ce nombre a DEUX endroits, et les deux disaient 28 quand le
+# script en executait 32. C'est le chiffre le plus facile a verifier pour un
+# relecteur — il a la commande sous les yeux, juste a cote — donc le pire a
+# laisser faux.
+try:
+    rf = subprocess.run(["node", "web/rendu_test.mjs"], cwd=RACINE,
+                        capture_output=True, text=True, timeout=300,
+                        encoding="utf-8", errors="replace")
+    m = re.search(r"(\d+) verifications passees", rf.stdout)
+    if not m:
+        ecarts.append("rendu front : sortie illisible, impossible de compter")
+    else:
+        front_reel = int(m.group(1))
+        compare("verifications du front (make test-front)",
+                cherche(README, r"make test-front\s+#\s*(\d+) v[eé]rifications"),
+                front_reel)
+        compare("verifications du front (section Tests)",
+                cherche(README, r"rendu_test\.mjs` [-—]+ (\d+) v[eé]rifications"),
+                front_reel)
+        compare("verifications du front (NOTES)",
+                cherche(NOTES, r"Rendu front \| (\d+) v[eé]rifications"),
+                front_reel)
+except FileNotFoundError:
+    print("  -     node absent : verifications du front non recalculees")
+
+print()
+print("=== README contre NOTES ===")
+# Les deux documents citent les memes comptes de tests. NOTES avait garde
+# 99/154 pendant que le README passait a 101/156 : deux documents qui se
+# contredisent valent moins qu'un seul.
+compare("fonctions de test (NOTES)",
+        cherche(NOTES, r"Tests Go \| (\d+) fonctions"), tests_reels)
+compare("cas de test (NOTES)",
+        cherche(NOTES, r"Tests Go \| \d+ fonctions, (\d+) cas"), cas_reels)
+
+print()
 print("=== Comptes d'audit ===")
 # Chaque script annonce lui-meme son nombre de cas : on le lit dans le script
 # plutot que de le recompter a la main.

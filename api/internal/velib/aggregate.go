@@ -274,7 +274,12 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 	//
 	// C'est le seul endroit du projet ou la complexite depassait O(n), et ca ne
 	// se voyait pas a 1 519 stations : 575 us, personne ne regarde.
-	idx = topK(idx, limit, func(a, b int) bool {
+	//
+	// On garde `idx` intact sous le nom `eligibles` : topK alloue sa propre
+	// tranche et ne modifie pas celle qu'on lui passe. C'est sur cette liste
+	// ENTIÈRE que se compte le nombre d'ex aequo, tout en bas.
+	eligibles := idx
+	top := topK(eligibles, limit, func(a, b int) bool {
 		va, vb := m.value(s.Stations[a]), m.value(s.Stations[b])
 		if va == vb {
 			// Depart des ex aequo par le nom : sans cet ordre total, deux
@@ -288,11 +293,8 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 		return va > vb
 	})
 
-	if limit > len(idx) {
-		limit = len(idx)
-	}
-	res.Stations = make([]StationBrief, 0, limit)
-	for _, i := range idx[:limit] {
+	res.Stations = make([]StationBrief, 0, len(top))
+	for _, i := range top {
 		res.Stations = append(res.Stations, brief(s.Stations[i], now))
 	}
 
@@ -305,18 +307,35 @@ func Rank(s Snapshot, m Metric, limit int, ascending bool, now time.Time) RankRe
 	// Sur « les stations avec le moins de vélos », des dizaines sont à zéro : le
 	// modèle doit savoir qu'il regarde un échantillon d'ex aequo et non un
 	// palmarès, sinon il présente vingt noms comme LE classement.
-	if len(res.Stations) > 0 && limit < len(idx) {
-		last := m.value(s.Stations[idx[limit-1]])
-		ties := 0
-		for _, i := range idx[limit:] {
-			if m.value(s.Stations[i]) == last {
-				ties++
+	// ⚠️ Le comptage porte sur `eligibles`, la liste ENTIÈRE, et surtout pas sur
+	// le retour de topK.
+	//
+	// La version précédente lisait `idx[limit:]` APRÈS que topK eut réduit idx à
+	// limit éléments. La tranche était donc toujours vide et la garde
+	// `limit < len(idx)` structurellement toujours fausse : cette note ne
+	// pouvait JAMAIS être émise, alors que sa description d'outil et le README
+	// la promettaient au modèle. Un audit l'a trouvée, aucun test ne la tenait —
+	// les tests de classement comparaient la liste, jamais la note. D'où
+	// TestRankSignaleLesExAequo.
+	if len(top) > 0 && len(top) < len(eligibles) {
+		seuil := m.value(s.Stations[top[len(top)-1]])
+		egaux, montres := 0, 0
+		for _, i := range eligibles {
+			if m.value(s.Stations[i]) == seuil {
+				egaux++
 			}
 		}
-		if ties > 0 {
+		for _, i := range top {
+			if m.value(s.Stations[i]) == seuil {
+				montres++
+			}
+		}
+		// « autres » : ceux qui partagent la valeur du dernier retenu SANS être
+		// affichés. Les ex aequo déjà montrés ne sont pas une information neuve.
+		if reste := egaux - montres; reste > 0 {
 			res.addNote(fmt.Sprintf("%d autres stations ont la même valeur que la "+
 				"dernière du classement, le départage est alphabétique donc "+
-				"arbitraire", ties))
+				"arbitraire", reste))
 		}
 	}
 	return res
