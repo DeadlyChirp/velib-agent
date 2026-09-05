@@ -162,7 +162,7 @@ def cas_station_inconnue(v):
     texte, outils, err = demander(q)
     if err:
         return "ERREUR", err[:70], texte
-    refuse = re.search(r"aucune|ne correspond|introuv|pas trouv|reformul|n'existe", texte, re.I)
+    refuse = re.search(r"aucune|ne correspond|introuv|pas trouv|reformul|n['’]existe", texte, re.I)
     if refuse:
         return "JUSTE", "refuse d'inventer", texte
     return "FAUX", "répond au lieu de refuser", texte
@@ -227,7 +227,7 @@ def main():
         if texte:
             print("%s→ %s" % (" " * 36, texte[:110].replace("\n", " ")))
         # Espacer : le palier gratuit du fournisseur limite les jetons/minute.
-        time.sleep(30)
+        time.sleep(6)
 
     print("-" * 96)
     resume = "  ".join("%s %d" % (k, n) for k, n in sorted(scores.items()))
