@@ -147,10 +147,25 @@ jobs:
       - name: Matrice d'injections
         run: python audit/injections.py
 
+      # ⚠️ CES DEUX ETAPES ONT BESOIN DE LA CLE, ELLES AUSSI.
+      #
+      # docker-compose.yml utilise l'operateur :? sur OPENAI_API_KEY, qui fait
+      # echouer TOUTE commande compose quand la variable manque — y compris
+      # `logs` et `down`, qui ne demarrent pourtant rien.
+      #
+      # Le piege etait deja documente plus haut pour `build`, et je l'ai quand
+      # meme reintroduit ici : la CI passait tous ses tests puis rougissait sur
+      # le menage. Un rouge de fin de job qui ne dit rien sur le code est le
+      # genre de rouge qu'on apprend a ignorer, et c'est ainsi qu'on rate le
+      # vrai.
       - name: Journaux en cas d'échec
         if: failure()
+        env:
+          OPENAI_API_KEY: ci-dummy-key
         run: docker compose logs --tail 100
 
       - name: Arrêt de la pile
         if: always()
+        env:
+          OPENAI_API_KEY: ci-dummy-key
         run: docker compose down -v
