@@ -21,6 +21,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# La console Windows encode en cp1252 par defaut. Ces scripts impriment du
+# francais, et le premier caractere hors cp1252 — une fleche, un signe
+# mathematique — tue le run EN PLEINE EXECUTION, apres avoir affiche des
+# resultats verts. La CI tourne sous Linux en UTF-8 : elle ne le verra jamais.
+# Une ligne par script, posee partout plutot qu'au coup par coup.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 RACINE = Path(__file__).resolve().parent.parent
 README = (RACINE / "README.md").read_text(encoding="utf-8")
 NOTES = (RACINE / "NOTES.md").read_text(encoding="utf-8")
