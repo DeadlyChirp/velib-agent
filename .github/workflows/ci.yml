@@ -25,9 +25,9 @@ jobs:
     name: Tests et analyse statique
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Lu depuis go.mod plutôt qu'écrit en dur : une version figée ici
           # finit toujours par diverger de celle qu'exige le module, et le
@@ -82,7 +82,7 @@ jobs:
     name: Images Docker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Construction des images
         env:
@@ -120,7 +120,7 @@ jobs:
       # Ils tournent avec la clé factice : le seul test qui appelle le modèle
       # vérifie que l'échec reste actionnable, ce qui est précisément ce qu'on
       # veut savoir quand une clé est mauvaise.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: api/go.mod
           cache-dependency-path: api/go.sum
