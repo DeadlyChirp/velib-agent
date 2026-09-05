@@ -71,6 +71,13 @@ jobs:
           go test -coverprofile=cover.out ./internal/... > /dev/null
           go tool cover -func=cover.out | tail -1
 
+      # Les chiffres du README sont recalcules et compares. Ils ont change une
+      # dizaine de fois pendant le projet, et chaque changement est une occasion
+      # d'en laisser un derriere. Un chiffre faux coute plus que son erreur : un
+      # lecteur qui en attrape un cesse de faire confiance aux autres.
+      - name: Cohérence de la documentation
+        run: python audit/coherence_doc.py
+
       # Le front n'a ni build ni dependance, et ses tests non plus : Node est
       # deja present sur le runner, le fichier n'importe rien. Il verifie la
       # propriete qui compte — la sortie du modele ne peut jamais devenir du

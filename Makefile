@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make help` liste tout.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs test test-front test-injections test-charge test-norace test-race-docker test-live test-integration cover fmt vet check reset
+.PHONY: help up down logs test test-front test-doc test-injections test-charge test-norace test-race-docker test-live test-integration cover fmt vet check reset
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -25,6 +25,9 @@ test: ## Tests unitaires, avec détecteur de compétition
 	# jamais du compilateur manquant. D'ou la cible test-norace en secours, et
 	# test-race-docker qui fait tourner le detecteur dans le conteneur.
 	cd api && go test -race -count=1 ./...
+
+test-doc: ## Verifie que les chiffres du README disent vrai
+	python audit/coherence_doc.py
 
 test-injections: ## 44 vecteurs d'injection, sans jeton (docker compose up requis)
 	python audit/injections.py

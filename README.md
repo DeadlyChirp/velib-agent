@@ -474,7 +474,15 @@ python audit/attaques_modele.py         # couche modèle
 python audit/comportements.py --rapide  # maladresses et bords, sans jeton
 python audit/injections.py              # 44 vecteurs d'injection, sans jeton
 python audit/charge.py                  # 50 clients simultanés, sans jeton
+python audit/coherence_doc.py           # les chiffres ci-dessous disent-ils vrai ?
 ```
+
+Le dernier mérite un mot. **Les chiffres de ce README sont recalculés en CI et
+comparés** — nombre de tests, couverture de chaque paquet, accord avec
+`NOTES.md`, résolution des liens internes. Ils ont changé une dizaine de fois
+pendant le projet, et chaque changement était une occasion d'en laisser un
+derrière. Un chiffre faux coûte plus que son erreur : un lecteur qui en attrape
+un cesse de faire confiance aux autres, y compris aux justes.
 
 **44 vecteurs d'injection, 44 tenus.** SQL — `' OR 1=1`, `UNION SELECT`,
 `pg_sleep`, empilement de requêtes — dans l'identifiant *et* dans l'en-tête
