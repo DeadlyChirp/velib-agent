@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make help` liste tout.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs test test-live test-integration cover fmt vet check reset
+.PHONY: help up down logs test test-norace test-race-docker test-live test-integration cover fmt vet check reset
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -20,7 +20,17 @@ logs: ## Suit les journaux de l'API
 	docker compose logs -f api
 
 test: ## Tests unitaires, avec détecteur de compétition
+	# -race exige cgo, donc un compilateur C. Sur une machine sans gcc — Windows
+	# le plus souvent — la commande echoue sur un message qui parle de cgo et
+	# jamais du compilateur manquant. D'ou la cible test-norace en secours, et
+	# test-race-docker qui fait tourner le detecteur dans le conteneur.
 	cd api && go test -race -count=1 ./...
+
+test-norace: ## Tests unitaires sans detecteur (machine sans compilateur C)
+	cd api && go test -count=1 ./...
+
+test-race-docker: ## Detecteur de competition dans le conteneur, comme la CI
+	cd api && docker run --rm -v "/$$(pwd):/src" -w //src golang:1.27-alpine 		sh -c "apk add --no-cache gcc musl-dev >/dev/null && CGO_ENABLED=1 go test -race -count=1 ./..." 
 
 test-live: ## Tests contre la vraie API Vélib (réseau requis)
 	cd api && go test -tags=live -count=1 -v ./internal/velib/

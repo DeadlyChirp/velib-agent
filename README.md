@@ -61,6 +61,28 @@ make test-live         # contre la vraie API Vélib'
 make reset             # arrête la pile ET efface les conversations
 ```
 
+Sans `make` — sous Windows, typiquement — les mêmes commandes en direct :
+
+```bash
+cd api && go test -count=1 ./...                                    # test
+cd api && go test -tags=integration -count=1 -v ./internal/httpapi/ # test-integration
+cd api && go test -tags=live -count=1 -v ./internal/velib/          # test-live
+docker compose down -v                                              # reset
+```
+
+⚠️ `make test` ajoute `-race`, qui **exige cgo donc un compilateur C**. Sur une
+machine Windows sans gcc, la commande échoue sur
+`-race requires cgo; enable cgo by setting CGO_ENABLED=1` — un message qui ne dit
+pas que le problème est l'absence de compilateur.
+
+Le détecteur de compétition compte : c'est lui qui protège le cache, lu par
+plusieurs requêtes pendant qu'une goroutine le rafraîchit. Sans toolchain C
+local, on le fait tourner dans le conteneur, ce que fait aussi la CI :
+
+```bash
+cd api && docker run --rm -v "/$(pwd):/src" -w //src golang:1.27-alpine   sh -c "apk add --no-cache gcc musl-dev >/dev/null && CGO_ENABLED=1 go test -race ./..."
+```
+
 ---
 
 ## Les décisions, et pourquoi
