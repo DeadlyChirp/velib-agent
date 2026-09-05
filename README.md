@@ -472,8 +472,26 @@ un ordre incohérent.
 python audit/attaques_api.py            # couche HTTP, ne coûte aucun jeton
 python audit/attaques_modele.py         # couche modèle
 python audit/comportements.py --rapide  # maladresses et bords, sans jeton
+python audit/injections.py              # 44 vecteurs d'injection, sans jeton
 python audit/charge.py                  # 50 clients simultanés, sans jeton
 ```
+
+**44 vecteurs d'injection, 44 tenus.** SQL — `' OR 1=1`, `UNION SELECT`,
+`pg_sleep`, empilement de requêtes — dans l'identifiant *et* dans l'en-tête
+d'identité qui sert de clé de session. Traversée de chemin sous six formes,
+dont le double encodage. Injection de commande. Pollution de prototype et clé
+JSON dupliquée. En-têtes `Host`, `X-Forwarded-Host` et `X-Original-URL`
+falsifiés. Unicode : substituts, normalisation NFKC, surcharge bidirectionnelle,
+combinants empilés. Et SSRF vers les métadonnées cloud, la boucle locale et
+`file://`.
+
+Aucun 500, aucune trace d'exécution, aucune fuite de chaîne de connexion.
+
+Plusieurs de ces vecteurs **ne s'appliquent pas** à ce service : il n'exécute
+aucune commande et ne prend aucune URL en entrée. Ils sont testés quand même,
+parce que « on utilise des requêtes préparées » est une intention, pas une
+preuve — et parce que pouvoir le dire en soutenance sans bluffer vaut les vingt
+lignes que ça coûte.
 
 Les deux qui n'appellent pas le modèle **tournent en CI à chaque poussée**. Un
 audit qu'on ne relance jamais documente l'état du code le jour où on l'a écrit,

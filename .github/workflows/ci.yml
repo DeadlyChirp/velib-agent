@@ -142,6 +142,11 @@ jobs:
       - name: Audit de comportements
         run: python audit/comportements.py --rapide
 
+      # 44 vecteurs d'injection : SQL, traversee de chemin, commande, JSON,
+      # en-tetes, Unicode, SSRF. Aucun n'appelle le modele.
+      - name: Matrice d'injections
+        run: python audit/injections.py
+
       - name: Journaux en cas d'échec
         if: failure()
         run: docker compose logs --tail 100

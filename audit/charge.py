@@ -9,6 +9,21 @@ On ne teste PAS le débit maximal — ce serait mesurer le fournisseur de modèl
 pas ce code. On teste que rien ne casse, ne fuit, ni ne se corrompt quand
 cinquante clients travaillent en même temps.
 
+⚠️ LIRE LES RÉSULTATS AVEC PRUDENCE AU-DELÀ DE 1 000 CLIENTS.
+
+Mesuré : jusqu'à 1 000 clients, zéro erreur. À 2 000, ce script rapporte des
+centaines d'échecs — et ils sont de CE CÔTÉ-CI. Ils arrivent en `-1`, c'est-à-dire
+une exception du client et non une réponse du serveur, et le service ne journalise
+aucun refus.
+
+Vérifié séparément : 2 000 requêtes vraiment simultanées passent sans une seule
+exception. Ce qui casse à 2 000 clients ici, c'est l'enchaînement — huit appels
+par client, seize mille au total — qui épuise les ports éphémères de la machine
+de test. Le harnais atteint sa limite avant le service.
+
+Un test de charge qui mesure sa propre limite et l'attribue au service est pire
+qu'un test absent : il fait corriger un problème qui n'existe pas.
+
     python audit/charge.py [--clients 50] [--tours 4]
 
 Aucun appel au modèle : uniquement les routes qui coûtent zéro jeton. Le seul
