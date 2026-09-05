@@ -68,6 +68,19 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@latest
           "$(go env GOPATH)/bin/staticcheck" ./...
 
+      # Vulnerabilites connues des dependances. govulncheck ne signale que ce
+      # que le code APPELLE reellement, pas tout ce qui traine dans go.sum : sur
+      # 42 vulnerabilites presentes dans l'arbre, 3 seulement etaient atteintes,
+      # et ce sont celles-la qu'on a corrigees.
+      #
+      # En CI parce qu'une dependance saine aujourd'hui ne l'est pas demain, et
+      # que personne ne relance un scan de securite spontanement.
+      - name: Vulnérabilités des dépendances
+        working-directory: api
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
       - name: Tests avec détecteur de compétition
         working-directory: api
         # -race est essentiel ici : le cache est lu par plusieurs requêtes

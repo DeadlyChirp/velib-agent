@@ -348,6 +348,24 @@ les conversations d'Alice.
 | `httpapi` | 26 % | débit, concurrence, traduction des erreurs, titres |
 | `agent` | 19 % | compatibilité fournisseur, cloisonnement des clés |
 
+**Trois vulnérabilités corrigées.** `govulncheck` tourne en CI et ne signale que
+ce que le code **appelle réellement** — pas tout ce qui traîne dans `go.sum`.
+Sur 42 vulnérabilités présentes dans l'arbre de dépendances, 3 seulement étaient
+atteintes :
+
+| Module | Trouvé | Corrigé |
+|---|---|---|
+| `github.com/jackc/pgx/v5` | v5.7.2 | **v5.9.2** |
+| `google.golang.org/grpc` | v1.65.0 | **v1.82.1** |
+| `go.opentelemetry.io/otel/sdk` | v1.29.0 | **v1.43.0** |
+
+Les trois sont des dépendances transitives, tirées par le framework d'agent.
+`go mod tidy` a d'ailleurs rétrogradé grpc vers une version `-dev` au premier
+essai : il a fallu forcer la version après le tidy, pas avant.
+
+En CI parce qu'une dépendance saine aujourd'hui ne l'est pas demain, et que
+personne ne relance un scan de sécurité spontanément.
+
 `staticcheck` tourne aussi en CI, en plus de `go vet` : code mort, comparaisons
 toujours vraies, mauvais usages de la bibliothèque standard. **Zéro
 avertissement** — l'ajouter maintenant fige ce niveau plutôt que de le laisser
