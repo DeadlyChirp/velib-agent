@@ -25,11 +25,16 @@ type Server struct {
 	log     *slog.Logger
 	metrics *observability.Metrics
 	debit   *limiteur
+	vigie   *vigie
 }
 
 // New construit le serveur.
 func New(a *agent.Service, cfg config.Config, log *slog.Logger, m *observability.Metrics) *Server {
-	return &Server{agent: a, cfg: cfg, log: log, metrics: m, debit: nouveauLimiteur()}
+	return &Server{
+		agent: a, cfg: cfg, log: log, metrics: m,
+		debit: nouveauLimiteur(),
+		vigie: nouvelleVigie(maxEnVol),
+	}
 }
 
 // Routes construit le routeur.
@@ -42,14 +47,23 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/metrics", s.handleMetrics)
-	mux.HandleFunc("GET /api/conversations", s.handleListConversations)
-	mux.HandleFunc("POST /api/conversations", s.handleCreateConversation)
-	mux.HandleFunc("GET /api/conversations/{id}", s.handleGetConversation)
-	mux.HandleFunc("DELETE /api/conversations/{id}", s.handleDeleteConversation)
+	// Ces quatre routes touchent PostgreSQL. Elles passent par la vigie, qui
+	// borne le nombre de requetes simultanees pour ne pas epuiser le pool de
+	// connexions — voir concurrence.go, et la mesure qui l'a motivee.
+	//
+	// GET /health et GET /api/metrics en sont volontairement exclues : elles
+	// servent a diagnostiquer une saturation, les brider aveuglerait la
+	// supervision au moment ou elle sert.
+	surBase := func(h http.HandlerFunc) http.Handler { return s.withMaxEnVol(h) }
+
+	mux.Handle("GET /api/conversations", surBase(s.handleListConversations))
+	mux.Handle("POST /api/conversations", surBase(s.handleCreateConversation))
+	mux.Handle("GET /api/conversations/{id}", surBase(s.handleGetConversation))
+	mux.Handle("DELETE /api/conversations/{id}", surBase(s.handleDeleteConversation))
 	// Seule route limitée en débit : c'est la seule qui appelle le modèle, donc
 	// la seule qui coûte des jetons chez le fournisseur. Voir debit.go.
 	mux.Handle("POST /api/conversations/{id}/messages",
-		s.withRateLimit(http.HandlerFunc(s.handleSendMessage)))
+		s.withRateLimit(s.withMaxEnVol(http.HandlerFunc(s.handleSendMessage))))
 
 	return s.withCORS(s.withLogging(s.withUserIDCheck(mux)))
 }

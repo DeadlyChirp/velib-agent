@@ -443,6 +443,7 @@ un ordre incohérent.
 python audit/attaques_api.py            # couche HTTP, ne coûte aucun jeton
 python audit/attaques_modele.py         # couche modèle
 python audit/comportements.py --rapide  # maladresses et bords, sans jeton
+python audit/charge.py                  # 50 clients simultanés, sans jeton
 ```
 
 Les deux qui n'appellent pas le modèle **tournent en CI à chaque poussée**. Un
@@ -647,6 +648,52 @@ reconstitué. Et le fait que le classement soit contaminé est lui-même une
 information — sur ce palier, **c'est le débit qui contraint, pas la latence**.
 Diviser les jetons par cinq multiplie d'autant le nombre de questions possibles
 par minute.
+
+### Et sous la charge de plusieurs personnes ?
+
+Tout ce qui précède a été mesuré **en série**, un appel après l'autre. C'est le
+régime le moins révélateur : une fuite de connexions ou un verrou trop large ne
+se voient qu'en concurrence. `audit/charge.py` fait tourner N clients en
+parallèle sur le cycle complet — créer, relire, lister, supprimer.
+
+Jusqu'à 100 clients, aucune erreur. **À 200, le service renvoyait des
+centaines de 500**, et PostgreSQL disait pourquoi :
+
+```
+FATAL: sorry, too many clients already
+```
+
+La cause n'est pas dans ce code. Le service de sessions du framework ouvre sa
+base avec `sql.Open` sans jamais appeler `SetMaxOpenConns`, et `database/sql`
+autorise alors un nombre **illimité** de connexions. Chaque requête concurrente
+en réclame une, PostgreSQL plafonne à 100 par défaut, et au-delà il refuse.
+
+Le framework n'expose ni le `*sql.DB` ni d'option de pool : impossible de
+corriger la cause. On peut en revanche **empêcher d'y arriver** — un plafond de
+64 requêtes en vol sur les routes qui touchent la base, qui fait patienter
+brièvement puis répond 503 avec un `Retry-After`. 503 et non 500 : le premier
+dit « revenez », le second dit « nous sommes cassés ».
+
+| Clients | Avant | Après |
+|---|---|---|
+| 100 | 668 req/s · p95 257 ms · 0 erreur | **753 req/s · p95 219 ms** · 0 erreur |
+| 200 | 685 req/s · p95 515 ms · **343 erreurs** | **920 req/s · p95 302 ms · 0 erreur** |
+| 400 | 711 req/s · p95 1 376 ms · **716 erreurs** | **924 req/s · p95 468 ms · 0 erreur** |
+
+Le résultat est contre-intuitif et mérite d'être dit : **borner la concurrence a
+augmenté le débit de 30 % et divisé la latence p95 par trois.** Sans plafond, les
+requêtes se battent pour des connexions qu'elles n'obtiennent pas, échouent,
+et le travail utile se noie dans le va-et-vient. En limitant le nombre de
+requêtes en vol, chacune va au bout plus vite.
+
+Augmenter `max_connections` aurait été le réflexe. Ça n'aurait fait que déplacer
+le mur : chaque connexion PostgreSQL coûte de la mémoire, et un service qui en
+ouvre autant qu'il reçoit de requêtes finit toujours par en manquer — plus tard,
+sous une charge plus grosse, et cette fois en production.
+
+La route de santé et les métriques sont **exclues du plafond**, à dessein : elles
+servent à diagnostiquer une saturation, et les brider aveuglerait la supervision
+au moment précis où elle est utile.
 
 ### Et si le parc devenait cent fois plus gros ?
 
