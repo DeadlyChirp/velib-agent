@@ -1,0 +1,27 @@
+# Le contexte de build part en entier au démon Docker, et tout ce qui y traîne
+# peut finir dans une couche d'image — d'où on ne le retire plus.
+#
+# Rien de tout cela n'est actuellement présent : c'est un garde-fou, pas une
+# réparation. Le Makefile écrit cover.out ici à chaque « make cover », et un
+# .env local est le genre de fichier qu'on crée sans y penser.
+
+# Artefacts de test et de couverture
+*.out
+*.test
+*.prof
+
+# Binaires compilés en local
+api
+/api
+*.exe
+
+# Secrets, même s'ils ne devraient jamais être ici
+.env
+.env.*
+!.env.example
+
+# Outils et éditeurs
+.git
+.gitignore
+.vscode
+.idea

@@ -342,15 +342,26 @@ attend « 100 stations vides » échoue le lendemain sans qu'aucun code n'ait
 changé, et on finit par ignorer ses échecs. C'est d'ailleurs l'erreur que j'ai
 commise en premier, sur la mesure des modèles, avant de la corriger.
 
-Six cas, choisis parce qu'ils sont **jugeables sans connaître la réponse** :
+Six cas, choisis parce qu'ils sont **jugeables sans connaître la réponse**.
+Résultats mesurés sur Gemini :
 
-- le total annoncé correspond au parc réellement en cache
-- le compte et le pourcentage annoncés sont cohérents **entre eux**, ce qui
-  attrape l'agent qui recopie un chiffre juste puis calcule de tête
-- un classement « le plus de » est effectivement décroissant
-- une station inventée produit un refus, jamais un chiffre
-- une demande d'énumération est refusée **et** redirigée
-- toute réponse chiffrée s'appuie sur un appel d'outil réel
+| Cas | Verdict | Ce que l'agent a répondu |
+|---|---|---|
+| Total du parc | JUSTE | annonce 1 519 |
+| Cohérence compte / pourcentage | JUSTE | 22/1519 = 1,45 %, annoncé **1,45 %** |
+| Classement décroissant | JUSTE | `[68, 65, 65, 64, 62]` |
+| Station inventée | JUSTE | « n'existe pas dans le parc » |
+| Énumération refusée | JUSTE | refuse et propose un comptage |
+| Chiffre toujours sourcé | JUSTE | `sourcé par network_summary` |
+
+Le deuxième cas est le plus utile. On ne vérifie pas la valeur du pourcentage,
+on vérifie qu'il **concorde avec le compte annoncé dans la même phrase** : un
+agent qui recopie un chiffre juste puis calcule 1,4 % de tête échoue ici, et il
+ne peut pas échouer pour une raison légitime.
+
+Le troisième se juge aussi sans rien connaître du parc : un classement « le plus
+de » doit décroître. Un modèle qui invente un palmarès produit presque toujours
+un ordre incohérent.
 
 ---
 

@@ -227,7 +227,7 @@ def main():
         if texte:
             print("%s→ %s" % (" " * 36, texte[:110].replace("\n", " ")))
         # Espacer : le palier gratuit du fournisseur limite les jetons/minute.
-        time.sleep(8)
+        time.sleep(30)
 
     print("-" * 96)
     resume = "  ".join("%s %d" % (k, n) for k, n in sorted(scores.items()))
